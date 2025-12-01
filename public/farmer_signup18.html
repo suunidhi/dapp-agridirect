@@ -18,13 +18,75 @@
     nav ul li a:hover {color:#F4FFC3;}
 
     .form-container {
-      width:400px; margin:40px auto; background:white; padding:20px; border-radius:12px;
+      width:600px; margin:40px auto; background:white; padding:30px; border-radius:12px;
       box-shadow:0 4px 12px rgba(0,0,0,0.1);
       transition: transform 0.3s ease, background 0.3s ease;
       position: relative;
+      max-height: 90vh;
+      overflow-y: auto;
     }
     .form-container:hover {
-      transform: scale(1.1);
+      transform: scale(1.02);
+    }
+    
+    .land-record-item {
+      border: 1px solid #ddd;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 8px;
+      background: #f9f9f9;
+    }
+    
+    .remove-land-record {
+      background: #dc3545;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    
+    .add-land-record {
+      background: #28a745;
+      color: white;
+      border: none;
+      padding: 8px 15px;
+      border-radius: 5px;
+      cursor: pointer;
+      margin: 10px 0;
+    }
+    
+    .metamask-connect-btn {
+      background: #f6851b;
+      color: white;
+      border: none;
+      padding: 8px 15px;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-left: 10px;
+      font-size: 0.9rem;
+    }
+    
+    .metamask-connect-btn:hover {
+      background: #e2761b;
+    }
+    
+    .error-msg {
+      color: red;
+      font-size: 0.85rem;
+      margin-top: 5px;
+      display: none;
+    }
+    .error-msg.show {
+      display: block;
+    }
+    
+    small {
+      display: block;
+      color: #666;
+      font-size: 0.85rem;
+      margin-top: 5px;
     }
     
     h2 {text-align:center; color:#2e7d32;}
@@ -132,33 +194,78 @@
     <h2>Register as Farmer</h2>
     <form id="farmerForm" enctype="multipart/form-data">
       <label>Full Name</label>
-      <input type="text" name="name" required>
+      <input type="text" name="fullName" required>
 
       <label>Farm Name</label>
       <input type="text" name="farmName" required>
 
-      <label>Location</label>
-      <input type="text" name="location" required>
+      <label>Address Line 1</label>
+      <input type="text" name="addressLine1" required>
+
+      <label>Address Line 2</label>
+      <input type="text" name="addressLine2">
+
+      <label>City</label>
+      <input type="text" name="city" required>
+
+      <label>District</label>
+      <input type="text" name="district" required>
+
+      <label>State</label>
+      <input type="text" name="state" required>
+
+      <label>Pincode</label>
+      <input type="text" name="pincode" pattern="[0-9]{6}" required placeholder="6-digit pincode">
 
       <label>Email</label>
       <input type="email" name="email" required>
 
       <label>Mobile Number</label>
-      <input type="tel" id="fphone" name="mobile" pattern="[0-9]{10}" required placeholder="10-digit number">
+      <input type="tel" id="fphone" name="mobileNumber" pattern="[0-9]{10}" required placeholder="10-digit number">
       <div id="errorMsg" class="error"></div>
 
       <label>Upload Farming Certificate</label>
-      <input type="file" name="certificate" accept=".pdf,.jpg,.jpeg,.png" required>
+      <input type="file" name="agricultureCertificate" accept=".pdf,.jpg,.jpeg,.png" required>
 
       <!-- ✅ Added: Upload QR Code for Payments -->
       <label>Upload Payment QR Code</label>
-      <input type="file" name="qrCode" accept="image/*" required>
+      <input type="file" name="paymentQRCode" accept="image/*" required>
 
       <label>Farming Experience (years)</label>
-      <input type="number" name="experience" min="0" required>
+      <input type="number" name="farmingExperienceYears" id="farmingExperienceYears" min="0" required>
 
       <label>Password</label>
-      <input type="password" name="password" minlength="6" required>
+      <input type="password" name="password" id="password" minlength="6" required>
+      <div class="error-msg" id="passwordError">Password must be at least 6 characters</div>
+
+      <label>Metamask Address</label>
+      <div style="display: flex; align-items: center;">
+        <input type="text" name="metamaskAddress" id="metamaskAddress" placeholder="0x..." pattern="^0x[a-fA-F0-9]{40}$" style="flex: 1;">
+        <button type="button" class="metamask-connect-btn" onclick="connectMetaMaskAndUpdateField('metamaskAddress', 'farmer')">Connect MetaMask</button>
+      </div>
+      <small>Connect your MetaMask wallet for blockchain transactions (optional but recommended)</small>
+
+      <hr style="margin: 20px 0; border: 1px solid #ddd;">
+
+      <h3 style="color: #2e7d32; margin: 20px 0 10px 0;">Land Records <span style="color: red;">*</span></h3>
+      <small>Upload at least one land record document</small>
+      <div id="landRecordsContainer">
+        <!-- Land records will be added here dynamically -->
+      </div>
+      <button type="button" class="add-land-record" onclick="addLandRecord()">+ Add Land Record</button>
+
+      <hr style="margin: 20px 0; border: 1px solid #ddd;">
+
+      <h3 style="color: #2e7d32; margin: 20px 0 10px 0;">Optional Documents</h3>
+
+      <label>Lease Deed (Optional)</label>
+      <input type="file" name="leaseDeed" accept=".pdf,.jpg,.jpeg,.png">
+
+      <label>Income Tax Return (Optional)</label>
+      <input type="file" name="incomeTaxReturn" accept=".pdf,.jpg,.jpeg,.png">
+
+      <label>Bank Passbook (Optional)</label>
+      <input type="file" name="bankPassbook" accept=".pdf,.jpg,.jpeg,.png">
 
       <button type="submit">Register</button>
     </form>
@@ -168,6 +275,8 @@
     <!-- Centered message div with OK button -->
     <div id="message">
       <span id="messageText"></span>
+      <br>
+      <button id="okBtn" style="display:none; margin-top:10px; padding:5px 15px; font-weight:bold; border:none; border-radius:5px; cursor:pointer; background:#dc3545; color:white;">OK</button>
     </div>
   </div>
   
@@ -196,8 +305,64 @@
     <p class="footer-copy">&copy; 2025 Agridirect. All Rights Reserved.</p>
   </footer>
 
+  <!-- MetaMask Connection Script -->
+  <script src="js/metamask.js"></script>
+
   <!-- Validation and AJAX Submission Script -->
   <script>
+    // Land Records Management
+    let landRecordCount = 0;
+
+    function addLandRecord() {
+      landRecordCount++;
+      const container = document.getElementById("landRecordsContainer");
+      const landRecordDiv = document.createElement("div");
+      landRecordDiv.className = "land-record-item";
+      landRecordDiv.id = `landRecord-${landRecordCount}`;
+      
+      landRecordDiv.innerHTML = `
+        <h4 style="margin-top: 0; color: #2e7d32;">Land Record #${landRecordCount}</h4>
+        <label>Document Type <span style="color: red;">*</span></label>
+        <select name="landRecordType-${landRecordCount}" required>
+          <option value="">-- Select Type --</option>
+          <option value="712 extract">712 Extract</option>
+          <option value="pattadar">Pattadar</option>
+          <option value="passbook">Passbook</option>
+          <option value="title deed">Title Deed</option>
+          <option value="khasra">Khasra</option>
+          <option value="khatuni">Khatuni</option>
+          <option value="ghataNumber">Ghata Number</option>
+        </select>
+        
+        <label>Upload Document <span style="color: red;">*</span></label>
+        <input type="file" name="landRecordDoc-${landRecordCount}" accept=".pdf,.jpg,.jpeg,.png" required>
+        
+        <label>Area (Hectares) <span style="color: red;">*</span></label>
+        <input type="number" name="landRecordArea-${landRecordCount}" step="0.01" min="0" required placeholder="e.g., 5.5">
+        
+        <label>Plot Number (Optional)</label>
+        <input type="text" name="landRecordPlot-${landRecordCount}" placeholder="e.g., PLOT-001">
+        
+        <button type="button" class="remove-land-record" onclick="removeLandRecord(${landRecordCount})">Remove</button>
+      `;
+      
+      container.appendChild(landRecordDiv);
+    }
+
+    function removeLandRecord(id) {
+      const element = document.getElementById(`landRecord-${id}`);
+      if (element) {
+        element.remove();
+      }
+    }
+
+    // Add first land record on page load
+    document.addEventListener("DOMContentLoaded", () => {
+      addLandRecord();
+      // Auto-connect MetaMask if previously connected
+      autoConnectMetaMask('metamaskAddress', 'farmer');
+    });
+
     const form = document.getElementById("farmerForm");
     const messageDiv = document.getElementById("message");
     const messageText = document.getElementById("messageText");
@@ -215,32 +380,176 @@
         document.getElementById("errorMsg").innerText = "";
       }
 
-      // Prepare form data
-      const formData = new FormData(form);
+      // Validate pincode
+      const pincode = document.querySelector('input[name="pincode"]').value;
+      if (!/^[0-9]{6}$/.test(pincode)) {
+        alert("Please enter a valid 6-digit pincode");
+        return;
+      }
+
+      // Validate password
+      const password = document.getElementById("password").value;
+      if (password.length < 6) {
+        document.getElementById("passwordError").classList.add("show");
+        return;
+      } else {
+        document.getElementById("passwordError").classList.remove("show");
+      }
+
+      // Validate at least one land record
+      const landRecords = document.querySelectorAll('.land-record-item');
+      if (landRecords.length === 0) {
+        alert("Please add at least one land record");
+        return;
+      }
+
+      // Validate MetaMask address if provided
+      const metamaskAddress = document.getElementById("metamaskAddress").value;
+      if (metamaskAddress) {
+        // Check if MetaMask connector is available
+        if (typeof metaMaskConnector !== 'undefined' && metaMaskConnector.isValidAddress) {
+          if (!metaMaskConnector.isValidAddress(metamaskAddress)) {
+            alert("Please enter a valid MetaMask address or connect using the button");
+            return;
+          }
+        } else {
+          // Fallback validation if MetaMask script not loaded
+          if (!/^0x[a-fA-F0-9]{40}$/.test(metamaskAddress)) {
+            alert("Please enter a valid MetaMask address (0x followed by 40 hex characters)");
+            return;
+          }
+        }
+      }
+
+      // Prepare land records data for backend FIRST
+      const landRecordsData = [];
+      const landRecordFiles = [];
+      
+      landRecords.forEach((record) => {
+        const type = record.querySelector(`select[name^="landRecordType"]`).value;
+        const area = record.querySelector(`input[name^="landRecordArea"]`).value;
+        const plotNumber = record.querySelector(`input[name^="landRecordPlot"]`).value || "";
+        const docFile = record.querySelector(`input[name^="landRecordDoc"]`).files[0];
+        
+        if (type && area && docFile) {
+          // Add metadata
+          landRecordsData.push({
+            type: type,
+            areaHectares: parseFloat(area),
+            plotNumber: plotNumber
+          });
+          // Add file (order must match metadata order)
+          landRecordFiles.push(docFile);
+        }
+      });
+
+      // Validate at least one land record
+      if (landRecordsData.length === 0) {
+        alert("Please add at least one land record with all required fields");
+        return;
+      }
+
+      // Build FormData manually to avoid sending unexpected fields to multer
+      const formData = new FormData();
+      
+      // Add all regular form fields (excluding land record fields)
+      const regularFields = ['fullName', 'farmName', 'addressLine1', 'addressLine2', 'city', 'district', 'state', 'pincode', 'email', 'mobileNumber', 'password', 'farmingExperienceYears'];
+      regularFields.forEach(fieldName => {
+        const field = form.querySelector(`[name="${fieldName}"]`);
+        if (field && field.value !== undefined && field.value !== '') {
+          formData.append(fieldName, field.value);
+        }
+      });
+
+      // Add metamask address if provided
+      if (metamaskAddress) {
+        formData.append("metamaskAddress", metamaskAddress);
+      }
+
+      // Add file fields that multer expects
+      const agricultureCert = form.querySelector('[name="agricultureCertificate"]');
+      if (!agricultureCert || !agricultureCert.files[0]) {
+        alert("Please upload Agriculture Certificate");
+        return;
+      }
+      formData.append("agricultureCertificate", agricultureCert.files[0]);
+
+      const paymentQR = form.querySelector('[name="paymentQRCode"]');
+      if (!paymentQR || !paymentQR.files[0]) {
+        alert("Please upload Payment QR Code");
+        return;
+      }
+      formData.append("paymentQRCode", paymentQR.files[0]);
+
+      const leaseDeed = form.querySelector('[name="leaseDeed"]');
+      if (leaseDeed && leaseDeed.files[0]) {
+        formData.append("leaseDeed", leaseDeed.files[0]);
+      }
+
+      const incomeTax = form.querySelector('[name="incomeTaxReturn"]');
+      if (incomeTax && incomeTax.files[0]) {
+        formData.append("incomeTaxReturn", incomeTax.files[0]);
+      }
+
+      const bankPassbook = form.querySelector('[name="bankPassbook"]');
+      if (bankPassbook && bankPassbook.files[0]) {
+        formData.append("bankPassbook", bankPassbook.files[0]);
+      }
+
+      // Add land records data as JSON string
+      formData.append("landRecordsData", JSON.stringify(landRecordsData));
+      
+      // Add land record files (backend expects them in req.files.landRecords array)
+      landRecordFiles.forEach((file) => {
+        formData.append("landRecords", file);
+      });
 
       // Send request to backend
       try {
-        const res = await fetch("http://localhost:5000/farmer/register", {
+        console.log("Sending registration request...");
+        const res = await fetch("http://localhost:5000/api/auth/register/farmer", {
           method: "POST",
           body: formData
         });
+        
+        console.log("Response status:", res.status);
+        
+        // Check if response is OK
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({ message: "Server error" }));
+          throw new Error(errorData.message || `Server error: ${res.status}`);
+        }
+        
         const data = await res.json();
+        console.log("Response data:", data);
 
         // Show message
-        messageText.innerText = data.message;
-        messageDiv.className = data.status || "success"; // success or error
+        messageText.innerText = data.message || (data.status === "success" || data.success ? "Registration successful!" : "Registration failed!");
+        messageDiv.className = data.status || (data.success ? "success" : "error");
         messageDiv.style.display = "block";
-        // Automatically go to login page after 2 seconds
-        setTimeout(() => {
-          window.location.href = "farmer_login18.html";
-        }, 2000); // 2000ms = 2 seconds
+        
+        // Automatically go to login page after 2 seconds if successful
+        if (data.status === "success" || data.success) {
+          setTimeout(() => {
+            window.location.href = "farmer_login18.html";
+          }, 2000);
+        } else {
+          // Show error with OK button
+          if (okBtn) {
+            okBtn.style.display = "inline-block";
+            okBtn.onclick = () => messageDiv.style.display = "none";
+          }
+        }
 
       } catch(err){
-        messageText.innerText = "Server error!";
+        console.error("Registration error:", err);
+        messageText.innerText = "Server error: " + (err.message || "Please try again");
         messageDiv.className = "error";
         messageDiv.style.display = "block";
-        okBtn.style.display = "inline-block";
-        okBtn.onclick = () => messageDiv.style.display = "none";
+        if (okBtn) {
+          okBtn.style.display = "inline-block";
+          okBtn.onclick = () => messageDiv.style.display = "none";
+        }
       }
     });
     document.addEventListener("DOMContentLoaded", () => {

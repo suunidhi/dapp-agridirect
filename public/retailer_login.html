@@ -193,21 +193,21 @@ form.addEventListener("submit", async(e)=>{
 
     const data = await res.json();
 
-    messageText.innerText = data.message;
-    messageDiv.className = data.status;
+    messageText.innerText = data.message || (data.success ? "Login successful!" : "Login failed!");
+    messageDiv.className = data.status || (data.success ? "success" : "error");
     messageDiv.style.display = "block";
 
-    if(data.status === "success"){
+    if(data.status === "success" || data.success){
       localStorage.setItem("userRole","retailer");
       localStorage.setItem("retailerId",data.retailerId);
       localStorage.setItem("retailerName",data.retailerName);
-
 
       setTimeout(()=>{
         window.location.href = "retailer_dashboard.html";
       },1500);
     } else {
       okBtn.style.display = "inline-block";
+      okBtn.onclick = () => messageDiv.style.display = "none";
     }
 
   } catch(err){

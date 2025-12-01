@@ -130,6 +130,15 @@
       e.preventDefault();
 
       const formData = new FormData(this);
+      
+      // Add farmerId from localStorage
+      const farmerId = localStorage.getItem("farmerId");
+      if (farmerId) {
+        formData.append("farmerId", farmerId);
+      } else {
+        alert("❌ Please login as a farmer to add products.");
+        return;
+      }
 
       try {
         const response = await fetch("/api/products", {
@@ -137,11 +146,13 @@
           body: formData
         });
 
-        if (response.ok) {
+        const data = await response.json();
+        
+        if (response.ok && data.status === "success") {
           alert("✅ Product added successfully!");
           this.reset();
         } else {
-          alert("❌ Failed to add product. Please try again.");
+          alert("❌ Failed to add product: " + (data.message || "Please try again."));
         }
       } catch (err) {
         console.error(err);
