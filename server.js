@@ -84,8 +84,177 @@ const Consumer = ConsumerEnhanced;
 const Distributor = DistributorEnhanced;
 const Retailer = RetailerEnhanced;
 
+<<<<<<< HEAD
 // All other models (Product, DistributorStock, MarketplaceProduct, RetailerProducts, Order, DistributorOrder)
 // are already imported from models/index.js, so we use them directly
+=======
+const consumerSchema = new mongoose.Schema({
+  name: String,
+  email: { type: String, unique: true },
+  mobile: String,
+  password: String,
+});
+const Consumer = mongoose.model("Consumer", consumerSchema);
+
+const productSchema = new mongoose.Schema({
+  farmerId: { type: mongoose.Schema.Types.ObjectId, ref: "Farmer", required: true },
+  name: String,
+  category: String,
+  preferences: { type: [String], default: [] }, // ✅ CHANGE HERE
+  price: Number,
+  quantity: Number,
+  location: String,
+  image: String,
+  harvestDate: Date,
+  moisture: Number,
+  protein: Number,
+  pesticideResidue: Number,
+  soilPh: Number,
+  labReport: String,
+  qrPath: String,
+});
+
+const Product = mongoose.model("Product", productSchema);
+// ------------------ DISTRIBUTOR MODEL ------------------
+const distributorSchema = new mongoose.Schema({
+  name: String,
+  companyName: String,
+  location: String,
+  email: { type: String, unique: true },
+  mobile: String,
+  password: String,
+  qrCode: String,
+});
+const Distributor = mongoose.model("Distributor", distributorSchema, "distributor");
+const distributorStockSchema = new mongoose.Schema({
+  distributorId: { type: mongoose.Schema.Types.ObjectId, ref: "Distributor" },
+  productName: String,
+  quantity: Number,
+  price: Number,
+  date: { type: Date, default: Date.now }
+});
+
+const DistributorStock = mongoose.model("DistributorStock", distributorStockSchema);
+
+// Distributor Request Model
+const distributorRequestSchema = new mongoose.Schema({
+  farmerId: { type: mongoose.Schema.Types.ObjectId, ref: "Farmer", required: true },
+  distributorId: { type: mongoose.Schema.Types.ObjectId, ref: "Distributor", required: true },
+  productId: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
+  status: { type: String, enum: ["pending", "accepted", "rejected"], default: "pending" },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const DistributorRequest = mongoose.model("DistributorRequest", distributorRequestSchema);
+
+
+// ------------------ RETAILER MODEL ------------------
+const retailerSchema = new mongoose.Schema({
+  name: String,
+  shopName: String,
+  location: String,
+  email: { type: String, unique: true },
+  mobile: String,
+  password: String,
+});
+const Retailer = mongoose.model("Retailer", retailerSchema);
+const distributorOrderSchema = new mongoose.Schema({
+  distributorId: { type: mongoose.Schema.Types.ObjectId, ref: "Distributor" },
+  retailerId: { type: mongoose.Schema.Types.ObjectId, ref: "Retailer" },
+  productName: String,
+  quantity: Number,
+  totalPrice: Number,
+  date: { type: Date, default: Date.now }
+});
+
+const DistributorOrder = mongoose.model("DistributorOrder", distributorOrderSchema);
+
+const orderSchema = new mongoose.Schema({
+  productId: { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
+  productName: String,
+  unitPrice: Number,
+  quantity: Number,
+  totalPrice: Number,
+  address: String,
+  paymentMethod: String,
+  distributorId: { type: mongoose.Schema.Types.ObjectId, ref: "Distributor" },
+  distributorName: String,
+  distributorEmail: String,
+  farmerId: { type: mongoose.Schema.Types.ObjectId, ref: "Farmer" },
+  orderDate: { type: Date, default: Date.now }
+});
+
+const Order = mongoose.model("Order", orderSchema);
+const marketplaceProductSchema = new mongoose.Schema({
+  distributorId: { type: String, required: true },
+  distributorName: String,
+  productName: String,
+  productType: String,
+
+  distributorPurchaseDate: String,
+  boughtDate: String,
+  storedDays: Number,
+  coldStorage: String,
+  temperature: Number,
+
+  // Grain fields
+  isCleaned: String,
+  grade: String,
+  impurityPercentage: Number,
+  packSize: String,
+  packMaterial: String,
+  moisturePercentage: Number,
+
+  // Fruit fields
+  ripenessLevel: String,
+  coldStorageUsed: String,
+  coldStorageDuration: Number,
+  storageTemperature: Number,
+  fruitSize: String,
+  colorGrade: String,
+  damagePercentage: Number,
+
+  // Vegetable fields
+  freshnessScore: String,
+  isWashed: String,
+  preservationMethod: String,
+  preservationDuration: Number,
+
+  // Common
+  initialWeight: Number,
+  finalWeight: Number,
+  distributorMargin: Number,
+  batchId: String,
+  processingStatus: String,
+  packagedAt: String,
+  marketPrice: Number,
+
+  image: String
+}, { timestamps: true });
+const MarketplaceProduct = mongoose.model("MarketplaceProduct", marketplaceProductSchema);
+const retailerOrderSchema = new mongoose.Schema({
+  productId: { type: String, required: true },
+  productName: { type: String, required: true },
+  unitPrice: { type: Number, required: true },
+  quantity: { type: Number, required: true },
+  totalPrice: { type: Number, required: true },
+
+  retailerId: { type: String, required: true },
+  retailerName: { type: String},
+  retailerEmail: { type: String },
+
+  distributorId: { type: String, required: true },
+
+  paymentMethod: { type: String, enum: ["cod", "qr"], required: true },
+  address: { type: String, required: true },
+
+  orderDate: { type: Date, default: Date.now },
+  status: { type: String, enum: ["pending", "completed", "failed"], default: "pending" }
+});
+
+const RetailerOrder = mongoose.model("RetailerOrder", retailerOrderSchema);
+
+>>>>>>> parent of 4f8dcd9 (improvement)
 
 // ------------------ MULTER ------------------
 const storage = multer.diskStorage({
@@ -3659,6 +3828,7 @@ app.get("/distributor/:id/qr", async (req, res) => {
     res.json({ success: false, message: "Server error" });
   }
 });
+<<<<<<< HEAD
 // ==================== RETAILER ORDER MANAGEMENT ====================
 
 // Enhanced Retailer Order Placement
@@ -3986,28 +4156,16 @@ app.get("/api/retailer/orders", async (req, res) => {
 app.post("/retailer/order", async (req, res) => {
   try {
     console.log("Retailer placing order:", req.body);
+=======
+>>>>>>> parent of 4f8dcd9 (improvement)
 
-    const order = new RetailerOrder({
-      productId: req.body.productId,
-      productName: req.body.productName,
-      unitPrice: req.body.unitPrice,
-      quantity: req.body.quantity,
-      totalPrice: req.body.totalPrice,
 
-      retailerId: req.body.retailerId,
-      retailerName: req.body.retailerName,
-      retailerEmail: req.body.retailerEmail,
 
-      distributorId: req.body.distributorId,
 
-      paymentMethod: req.body.paymentMethod,
-      address: req.body.address
-    });
 
-    await order.save();
 
-    res.json({ success: true, message: "Order placed successfully" });
 
+<<<<<<< HEAD
   } catch (err) {
     console.error("Error placing retailer order:", err);
     res.status(500).json({ success: false, error: err.message });
@@ -4019,93 +4177,12 @@ app.get("/retailer/orders/:retailerId", async (req, res) => {
   req.url = "/api/retailer/orders";
   app._router.handle(req, res);
 });
+=======
 
-// DELETE RETAILER ORDER
-app.delete("/retailer/orders/:orderId", async (req, res) => {
-    try {
-        const deleted = await RetailerOrder.findByIdAndDelete(req.params.orderId);
 
-        if (!deleted) {
-            return res.json({ success: false, message: "Order not found" });
-        }
 
-        res.json({ success: true, message: "Order deleted successfully" });
+>>>>>>> parent of 4f8dcd9 (improvement)
 
-    } catch (err) {
-        console.error("Delete order error:", err);
-        res.status(500).json({ success: false, message: "Server Error" });
-    }
-});
-app.post("/retailer/add-marketplace", upload.single("image"), async (req, res) => {
-    try {
-        let { retailerId, orderId, productName, buyingPrice, sellingPrice, quantity, description } = req.body;
-
-        // Validate required fields
-        if (!retailerId || !orderId || !productName ||
-            buyingPrice == null || sellingPrice == null || quantity == null) {
-            return res.json({ success: false, message: "Missing required fields" });
-        }
-
-        buyingPrice = Number(buyingPrice);
-        sellingPrice = Number(sellingPrice);
-        quantity = Number(quantity);
-
-        // Check if the product is already in marketplace
-        const existing = await RetailerProducts.findOne({ retailerId, orderId });
-        if (existing) {
-            return res.json({ success: false, message: "You have already added this product to the marketplace." });
-        }
-
-        const imageFileName = req.file ? req.file.filename : null;
-
-        const retailerProduct = new RetailerProducts({
-            retailerId,
-            orderId,
-            productId: new mongoose.Types.ObjectId(),
-            productName,
-            buyingPrice,
-            sellingPrice,
-            quantity,
-            description,
-            image: imageFileName
-        });
-
-        await retailerProduct.save();
-
-        res.json({ success: true, message: "Product added successfully" });
-
-    } catch (err) {
-        console.error(err);
-        res.json({ success: false, message: "Server error" });
-    }
-});
-// 🔹 GET all retailer products for consumer marketplace
-app.get("/api/consumer/retailer-products", async (req, res) => {
-  try {
-    const products = await RetailerProducts.find({})
-      .select("productName description sellingPrice image retailerId createdAt") // select only needed fields
-      .lean();
-
-    if (!products || products.length === 0) {
-      return res.json({ success: true, products: [] });
-    }
-
-    const formattedProducts = products.map(p => ({
-      id: p._id,
-      productName: p.productName,
-      description: p.description,
-      price: p.sellingPrice,
-      image: `/uploads/${p.image}`, // adjust path if needed
-      retailer: p.retailerId,      // optionally populate name from Retailer collection
-      createdAt: p.createdAt
-    }));
-
-    res.json({ success: true, products: formattedProducts });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-});
 
 // ==================== ADMIN VERIFICATION APIs ====================
 

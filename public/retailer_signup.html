@@ -323,6 +323,7 @@ document.getElementById("retailerForm").addEventListener("submit", async (e)=>{
     msg.className = data.status || (data.success ? "success" : "error");
     msg.style.display = "block";
 
+<<<<<<< HEAD
     if (data.status === "success" || data.success) {
       // Redirect to login page (registration doesn't auto-login)
       setTimeout(() => window.location.href = "retailer_login.html", 2000);
@@ -367,6 +368,10 @@ document.getElementById("pincode").addEventListener("blur", function() {
     showError("pincodeError", true);
   } else {
     showError("pincodeError", false);
+=======
+  if(data.status === "success"){
+    setTimeout(()=> window.location.href="retailer_login.html", 2000);
+>>>>>>> parent of 4f8dcd9 (improvement)
   }
 });
 
