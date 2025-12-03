@@ -36,6 +36,8 @@ import BlockchainService from "./services/blockchain.js";
 import CertificateService from "./services/certificate.js";
 import IPFSService from "./services/ipfs.js";
 import OTPService from "./services/otp.js";
+import EventLedgerService from "./services/eventLedger.js";
+import { EventLedger } from "./models/index.js";
 
 // Load environment variables (suppress dotenv tips)
 dotenv.config({ quiet: true });
@@ -83,178 +85,6 @@ const Farmer = FarmerEnhanced;
 const Consumer = ConsumerEnhanced;
 const Distributor = DistributorEnhanced;
 const Retailer = RetailerEnhanced;
-
-<<<<<<< HEAD
-// All other models (Product, DistributorStock, MarketplaceProduct, RetailerProducts, Order, DistributorOrder)
-// are already imported from models/index.js, so we use them directly
-=======
-const consumerSchema = new mongoose.Schema({
-  name: String,
-  email: { type: String, unique: true },
-  mobile: String,
-  password: String,
-});
-const Consumer = mongoose.model("Consumer", consumerSchema);
-
-const productSchema = new mongoose.Schema({
-  farmerId: { type: mongoose.Schema.Types.ObjectId, ref: "Farmer", required: true },
-  name: String,
-  category: String,
-  preferences: { type: [String], default: [] }, // ✅ CHANGE HERE
-  price: Number,
-  quantity: Number,
-  location: String,
-  image: String,
-  harvestDate: Date,
-  moisture: Number,
-  protein: Number,
-  pesticideResidue: Number,
-  soilPh: Number,
-  labReport: String,
-  qrPath: String,
-});
-
-const Product = mongoose.model("Product", productSchema);
-// ------------------ DISTRIBUTOR MODEL ------------------
-const distributorSchema = new mongoose.Schema({
-  name: String,
-  companyName: String,
-  location: String,
-  email: { type: String, unique: true },
-  mobile: String,
-  password: String,
-  qrCode: String,
-});
-const Distributor = mongoose.model("Distributor", distributorSchema, "distributor");
-const distributorStockSchema = new mongoose.Schema({
-  distributorId: { type: mongoose.Schema.Types.ObjectId, ref: "Distributor" },
-  productName: String,
-  quantity: Number,
-  price: Number,
-  date: { type: Date, default: Date.now }
-});
-
-const DistributorStock = mongoose.model("DistributorStock", distributorStockSchema);
-
-// Distributor Request Model
-const distributorRequestSchema = new mongoose.Schema({
-  farmerId: { type: mongoose.Schema.Types.ObjectId, ref: "Farmer", required: true },
-  distributorId: { type: mongoose.Schema.Types.ObjectId, ref: "Distributor", required: true },
-  productId: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
-  status: { type: String, enum: ["pending", "accepted", "rejected"], default: "pending" },
-  createdAt: { type: Date, default: Date.now }
-});
-
-const DistributorRequest = mongoose.model("DistributorRequest", distributorRequestSchema);
-
-
-// ------------------ RETAILER MODEL ------------------
-const retailerSchema = new mongoose.Schema({
-  name: String,
-  shopName: String,
-  location: String,
-  email: { type: String, unique: true },
-  mobile: String,
-  password: String,
-});
-const Retailer = mongoose.model("Retailer", retailerSchema);
-const distributorOrderSchema = new mongoose.Schema({
-  distributorId: { type: mongoose.Schema.Types.ObjectId, ref: "Distributor" },
-  retailerId: { type: mongoose.Schema.Types.ObjectId, ref: "Retailer" },
-  productName: String,
-  quantity: Number,
-  totalPrice: Number,
-  date: { type: Date, default: Date.now }
-});
-
-const DistributorOrder = mongoose.model("DistributorOrder", distributorOrderSchema);
-
-const orderSchema = new mongoose.Schema({
-  productId: { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
-  productName: String,
-  unitPrice: Number,
-  quantity: Number,
-  totalPrice: Number,
-  address: String,
-  paymentMethod: String,
-  distributorId: { type: mongoose.Schema.Types.ObjectId, ref: "Distributor" },
-  distributorName: String,
-  distributorEmail: String,
-  farmerId: { type: mongoose.Schema.Types.ObjectId, ref: "Farmer" },
-  orderDate: { type: Date, default: Date.now }
-});
-
-const Order = mongoose.model("Order", orderSchema);
-const marketplaceProductSchema = new mongoose.Schema({
-  distributorId: { type: String, required: true },
-  distributorName: String,
-  productName: String,
-  productType: String,
-
-  distributorPurchaseDate: String,
-  boughtDate: String,
-  storedDays: Number,
-  coldStorage: String,
-  temperature: Number,
-
-  // Grain fields
-  isCleaned: String,
-  grade: String,
-  impurityPercentage: Number,
-  packSize: String,
-  packMaterial: String,
-  moisturePercentage: Number,
-
-  // Fruit fields
-  ripenessLevel: String,
-  coldStorageUsed: String,
-  coldStorageDuration: Number,
-  storageTemperature: Number,
-  fruitSize: String,
-  colorGrade: String,
-  damagePercentage: Number,
-
-  // Vegetable fields
-  freshnessScore: String,
-  isWashed: String,
-  preservationMethod: String,
-  preservationDuration: Number,
-
-  // Common
-  initialWeight: Number,
-  finalWeight: Number,
-  distributorMargin: Number,
-  batchId: String,
-  processingStatus: String,
-  packagedAt: String,
-  marketPrice: Number,
-
-  image: String
-}, { timestamps: true });
-const MarketplaceProduct = mongoose.model("MarketplaceProduct", marketplaceProductSchema);
-const retailerOrderSchema = new mongoose.Schema({
-  productId: { type: String, required: true },
-  productName: { type: String, required: true },
-  unitPrice: { type: Number, required: true },
-  quantity: { type: Number, required: true },
-  totalPrice: { type: Number, required: true },
-
-  retailerId: { type: String, required: true },
-  retailerName: { type: String},
-  retailerEmail: { type: String },
-
-  distributorId: { type: String, required: true },
-
-  paymentMethod: { type: String, enum: ["cod", "qr"], required: true },
-  address: { type: String, required: true },
-
-  orderDate: { type: Date, default: Date.now },
-  status: { type: String, enum: ["pending", "completed", "failed"], default: "pending" }
-});
-
-const RetailerOrder = mongoose.model("RetailerOrder", retailerOrderSchema);
-
->>>>>>> parent of 4f8dcd9 (improvement)
 
 // ------------------ MULTER ------------------
 const storage = multer.diskStorage({
@@ -920,6 +750,32 @@ app.post("/api/farmer/crops/:cropId/select-distributor", async (req, res) => {
 
     await cropBatch.save();
 
+    // Create SENT_TO_DISTRIBUTOR event block
+    const sentToDistributorEvent = await EventLedgerService.createEventBlock({
+      productId: cropBatch.cropId,
+      cropBatchId: cropBatch._id,
+      eventType: "SENT_TO_DISTRIBUTOR",
+      eventData: {
+        farmerId: cropBatch.farmerId.toString(),
+        distributorId: distributorId.toString(),
+        distributorName: distributor.fullName || distributor.companyName,
+        requestId: distributorRequest._id.toString()
+      },
+      actorId: cropBatch.farmerId,
+      actorRole: "Farmer"
+    });
+
+    if (sentToDistributorEvent.success) {
+      cropBatch.latestBlockHash = sentToDistributorEvent.blockHash;
+      await cropBatch.save();
+      console.log("✅ SENT_TO_DISTRIBUTOR block created:");
+      console.log("   Event CID:", sentToDistributorEvent.eventCID);
+      console.log("   Block Hash:", sentToDistributorEvent.blockHash);
+      console.log("   Previous Hash:", cropBatch.latestBlockHash);
+    } else {
+      console.error("❌ Failed to create SENT_TO_DISTRIBUTOR block:", sentToDistributorEvent.error);
+    }
+
     res.json({
       success: true,
       message: "Distributor request sent successfully",
@@ -928,7 +784,9 @@ app.post("/api/farmer/crops/:cropId/select-distributor", async (req, res) => {
         cropId: cropBatch.cropId,
         status: cropBatch.status,
         selectedDistributorId: cropBatch.selectedDistributorId
-      }
+      },
+      blockCreated: sentToDistributorEvent.success ? true : false,
+      eventCID: sentToDistributorEvent.eventCID || null
     });
   } catch (error) {
     console.error("❌ Select distributor error:", error);
@@ -1677,6 +1535,38 @@ app.post("/api/farmer/crops", uploadCropBatch, async (req, res) => {
 
     await cropBatch.save();
 
+    // Create PRODUCT_CREATED event block
+    const productCreatedEvent = await EventLedgerService.createEventBlock({
+      productId: cropId,
+      cropBatchId: cropBatch._id,
+      eventType: "PRODUCT_CREATED",
+      eventData: {
+        productName,
+        category,
+        quantity: parseFloat(quantity),
+        unit,
+        pricePerUnitFarmer: parseFloat(pricePerUnitFarmer),
+        harvestDate,
+        imageCIDs,
+        videoCID,
+        labReportCID,
+        qualityGrade
+      },
+      actorId: farmerId,
+      actorRole: "Farmer"
+    });
+
+    if (productCreatedEvent.success) {
+      cropBatch.latestBlockHash = productCreatedEvent.blockHash;
+      await cropBatch.save();
+      console.log("✅ PRODUCT_CREATED block created:");
+      console.log("   Event CID:", productCreatedEvent.eventCID);
+      console.log("   Block Hash:", productCreatedEvent.blockHash);
+      console.log("   Product ID:", cropId);
+    } else {
+      console.error("❌ Failed to create PRODUCT_CREATED block:", productCreatedEvent.error);
+    }
+
     // Create initial price trace
     const priceTrace = new PriceTrace({
       cropBatchId: cropBatch._id,
@@ -1714,7 +1604,7 @@ app.post("/api/farmer/crops", uploadCropBatch, async (req, res) => {
 
     res.json({
       success: true,
-      message: "Crop batch created successfully",
+      message: "Crop batch created successfully. Block created: PRODUCT_CREATED",
       cropBatch: {
         _id: cropBatch._id,
         cropId: cropBatch.cropId,
@@ -1722,7 +1612,10 @@ app.post("/api/farmer/crops", uploadCropBatch, async (req, res) => {
         status: cropBatch.status,
         qrCodeUrl: qrUrl,
         qrCodeImagePath: `/uploads/qrs/${qrFileName}`
-      }
+      },
+      blockCreated: productCreatedEvent.success ? true : false,
+      eventCID: productCreatedEvent.eventCID || null,
+      blockHash: productCreatedEvent.blockHash || null
     });
   } catch (error) {
     console.error("❌ Create crop batch error:", error);
@@ -3238,9 +3131,6 @@ app.post("/orders", async (req, res) => {
       paymentMethod
     } = req.body;
 
-    // -------------------------------
-    // 1️⃣ Validate Distributor
-    // -------------------------------
     const distributor = await Distributor.findById(distributorId);
     if (!distributor) {
       return res.status(400).json({
@@ -3249,20 +3139,110 @@ app.post("/orders", async (req, res) => {
       });
     }
 
-    // -------------------------------
-    // 2️⃣ Validate Product
-    // -------------------------------
-    const product = await Product.findById(productId);
+    let product = await Product.findById(productId);
+    let cropBatch = null;
+    let isCropBatch = false;
+
     if (!product) {
+      cropBatch = await CropBatch.findOne({ cropId: productId });
+      if (cropBatch) {
+        isCropBatch = true;
+      }
+    }
+
+    if (!product && !cropBatch) {
       return res.status(400).json({
         success: false,
         message: "Product not found"
       });
     }
 
-    // -------------------------------
-    // 3️⃣ Validate Farmer
-    // -------------------------------
+    if (isCropBatch) {
+      if (!farmerId || !cropBatch.farmerId || cropBatch.farmerId.toString() !== farmerId) {
+        return res.status(400).json({
+          success: false,
+          message: "Farmer not found for this product"
+        });
+      }
+
+      const request = await DistributorRequest.findOne({
+        cropBatchId: cropBatch._id,
+        distributorId,
+        status: "accepted"
+      });
+
+      if (!request) {
+        return res.status(400).json({
+          success: false,
+          message: "Distributor must accept the request before checkout"
+        });
+      }
+
+      const finalUnitPrice = unitPrice || cropBatch.pricePerUnitFarmer;
+      const finalTotalPrice = quantity * finalUnitPrice;
+
+      const order = new Order({
+        productId,
+        productName,
+        farmerId,
+        distributorId,
+        distributorName,
+        distributorEmail,
+        unitPrice: finalUnitPrice,
+        quantity,
+        totalPrice: finalTotalPrice,
+        address,
+        paymentMethod,
+        orderDate: new Date()
+      });
+
+      await order.save();
+
+      const checkoutEvent = await EventLedgerService.createEventBlock({
+        productId: cropBatch.cropId,
+        cropBatchId: cropBatch._id,
+        eventType: "CHECKOUT_INITIATED_BY_DISTRIBUTOR",
+        eventData: {
+          farmerId: cropBatch.farmerId.toString(),
+          distributorId: distributorId.toString(),
+          distributorName,
+          productName,
+          quantity: parseFloat(quantity),
+          unitPrice: parseFloat(finalUnitPrice),
+          totalPrice: parseFloat(finalTotalPrice),
+          paymentMethod,
+          address,
+          orderId: order._id.toString(),
+          acceptanceTimestamp: cropBatch.distributorAcceptedAt,
+          checkoutTimestamp: new Date().toISOString()
+        },
+        actorId: distributorId,
+        actorRole: "Distributor"
+      });
+
+      if (checkoutEvent.success) {
+        cropBatch.latestBlockHash = checkoutEvent.blockHash;
+        await cropBatch.save();
+        console.log("✅ CHECKOUT_INITIATED_BY_DISTRIBUTOR block created:");
+        console.log("   Event CID:", checkoutEvent.eventCID);
+        console.log("   Block Hash:", checkoutEvent.blockHash);
+        console.log("   Previous Hash:", cropBatch.latestBlockHash);
+      } else {
+        console.error("❌ Failed to create CHECKOUT_INITIATED_BY_DISTRIBUTOR block:", checkoutEvent.error);
+      }
+
+      res.json({
+        success: true,
+        message: "Order placed successfully! Block created: CHECKOUT_INITIATED_BY_DISTRIBUTOR",
+        order,
+        blockCreated: checkoutEvent.success ? true : false,
+        eventCID: checkoutEvent.eventCID || null,
+        blockHash: checkoutEvent.blockHash || null
+      });
+
+      return;
+    }
+
     if (!farmerId || !product.farmerId || product.farmerId.toString() !== farmerId) {
       return res.status(400).json({
         success: false,
@@ -3270,15 +3250,9 @@ app.post("/orders", async (req, res) => {
       });
     }
 
-    // -------------------------------
-    // 4️⃣ Price Calculation Safety
-    // -------------------------------
     const finalUnitPrice = unitPrice || product.price;
     const finalTotalPrice = quantity * finalUnitPrice;
 
-    // -------------------------------
-    // 5️⃣ Create Order
-    // -------------------------------
     const order = new Order({
       productId,
       productName,
@@ -3828,336 +3802,6 @@ app.get("/distributor/:id/qr", async (req, res) => {
     res.json({ success: false, message: "Server error" });
   }
 });
-<<<<<<< HEAD
-// ==================== RETAILER ORDER MANAGEMENT ====================
-
-// Enhanced Retailer Order Placement
-app.post("/api/retailer/orders", async (req, res) => {
-  try {
-    const {
-      retailerId,
-      distributorListingId,
-      quantity,
-      unitPrice,
-      totalPrice,
-      paymentMethod,
-      address
-    } = req.body;
-
-    // Validation
-    if (!retailerId || !distributorListingId || !quantity || !unitPrice || !paymentMethod || !address) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing required fields"
-      });
-    }
-
-    // Find distributor listing
-    const listing = await DistributorListing.findById(distributorListingId)
-      .populate("distributorId")
-      .populate("cropBatchId");
-
-    if (!listing) {
-      return res.status(404).json({
-        success: false,
-        message: "Listing not found"
-      });
-    }
-
-    if (listing.status !== "listed") {
-      return res.status(400).json({
-        success: false,
-        message: "Listing is not available for purchase"
-      });
-    }
-
-    // Check quantity availability
-    if (parseFloat(quantity) > listing.finalUsableWeight) {
-      return res.status(400).json({
-        success: false,
-        message: "Insufficient quantity available"
-      });
-    }
-
-    // Find retailer
-    const retailer = await RetailerEnhanced.findById(retailerId);
-    if (!retailer) {
-      return res.status(404).json({
-        success: false,
-        message: "Retailer not found"
-      });
-    }
-
-    // Create retailer order
-    const order = new RetailerOrder({
-      retailerId,
-      distributorId: listing.distributorId._id,
-      distributorListingId: listing._id,
-      cropBatchId: listing.cropBatchId._id,
-      productName: listing.productName,
-      quantity: parseFloat(quantity),
-      unitPrice: parseFloat(unitPrice),
-      totalPrice: parseFloat(totalPrice),
-      paymentMethod: paymentMethod.toLowerCase(),
-      paymentStatus: paymentMethod.toLowerCase() === "cod" ? "pending" : "completed",
-      address,
-      status: "pending"
-    });
-
-    await order.save();
-
-    // Update listing status if all quantity sold
-    const remainingQuantity = listing.finalUsableWeight - parseFloat(quantity);
-    if (remainingQuantity <= 0) {
-      listing.status = "sold";
-      await listing.save();
-    }
-
-    // Update crop batch
-    const cropBatch = listing.cropBatchId;
-    cropBatch.status = "inTransitToRetailer";
-    
-    // Add ledger entry
-    cropBatch.history.push({
-      type: "soldToRetailer",
-      actorId: retailerId,
-      actorRole: "Retailer",
-      timestamp: new Date(),
-      metadata: {
-        orderId: order._id.toString(),
-        quantity: parseFloat(quantity),
-        unitPrice: parseFloat(unitPrice),
-        totalPrice: parseFloat(totalPrice)
-      }
-    });
-    await cropBatch.save();
-
-    // Update price trace
-    const priceTrace = await PriceTrace.findOne({ cropBatchId: cropBatch._id });
-    if (priceTrace) {
-      priceTrace.retailerPurchasePrice = parseFloat(unitPrice);
-      priceTrace.priceUpdates.push({
-        stage: "retailer",
-        oldPrice: priceTrace.retailerPurchasePrice || 0,
-        newPrice: parseFloat(unitPrice),
-        updatedBy: retailerId,
-        updatedByRole: "Retailer",
-        reason: "Retailer order placed",
-        timestamp: new Date()
-      });
-      await priceTrace.save();
-    }
-
-    res.json({
-      success: true,
-      message: "Order placed successfully",
-      order: {
-        _id: order._id,
-        productName: order.productName,
-        quantity: order.quantity,
-        totalPrice: order.totalPrice,
-        paymentMethod: order.paymentMethod,
-        status: order.status,
-        orderDate: order.orderDate
-      }
-    });
-  } catch (error) {
-    console.error("❌ Create retailer order error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Error placing order",
-      error: error.message
-    });
-  }
-});
-
-// Retailer Order Receipt with Quality Checks
-app.post("/api/retailer/orders/:orderId/confirm-receipt", upload.fields([
-  { name: "qualityPhotos", maxCount: 5 }
-]), async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const {
-      receivedTemperature,
-      receivedQuality,
-      receivedQuantity,
-      coldStorageUsed,
-      coldStorageDuration,
-      retailerPrice
-    } = req.body;
-
-    // Find order
-    const order = await RetailerOrder.findById(orderId)
-      .populate("cropBatchId")
-      .populate("distributorId");
-
-    if (!order) {
-      return res.status(404).json({
-        success: false,
-        message: "Order not found"
-      });
-    }
-
-    if (order.status !== "pending" && order.deliveryStatus !== "pending") {
-      return res.status(400).json({
-        success: false,
-        message: "Order already processed"
-      });
-    }
-
-    // Upload quality photos to IPFS
-    const qualityPhotoCIDs = [];
-    if (req.files?.qualityPhotos) {
-      for (const photoFile of req.files.qualityPhotos) {
-        const ipfsResult = await IPFSService.uploadFile(photoFile.path);
-        if (ipfsResult.success) {
-          qualityPhotoCIDs.push(ipfsResult.cid);
-        }
-        try { fs.unlinkSync(photoFile.path); } catch (e) {}
-      }
-    }
-
-    // Update order
-    order.deliveryStatus = "delivered";
-    order.status = "completed";
-    order.receivedTimestamp = new Date();
-    order.receivedTemperature = receivedTemperature ? parseFloat(receivedTemperature) : undefined;
-    order.receivedQuality = receivedQuality;
-    order.receivedQuantity = receivedQuantity ? parseFloat(receivedQuantity) : undefined;
-    order.coldStorageUsed = coldStorageUsed === "true" || coldStorageUsed === true;
-    order.coldStorageDuration = coldStorageDuration ? parseFloat(coldStorageDuration) : undefined;
-    order.retailerPrice = retailerPrice ? parseFloat(retailerPrice) : undefined;
-    await order.save();
-
-    // Update crop batch
-    const cropBatch = order.cropBatchId;
-    cropBatch.status = "withRetailer";
-    
-    // Add ledger entry
-    cropBatch.history.push({
-      type: "soldToRetailer",
-      actorId: order.retailerId,
-      actorRole: "Retailer",
-      timestamp: new Date(),
-      metadata: {
-        orderId: order._id.toString(),
-        receivedTemperature,
-        receivedQuality,
-        receivedQuantity,
-        coldStorageUsed,
-        retailerPrice
-      }
-    });
-    await cropBatch.save();
-
-    // Update price trace
-    const priceTrace = await PriceTrace.findOne({ cropBatchId: cropBatch._id });
-    if (priceTrace && retailerPrice) {
-      priceTrace.retailerSalePrice = parseFloat(retailerPrice);
-      priceTrace.finalConsumerPrice = parseFloat(retailerPrice);
-      priceTrace.retailerMargin = parseFloat(retailerPrice) - priceTrace.retailerPurchasePrice;
-      
-      priceTrace.priceUpdates.push({
-        stage: "retailer",
-        oldPrice: priceTrace.retailerSalePrice || 0,
-        newPrice: parseFloat(retailerPrice),
-        updatedBy: order.retailerId,
-        updatedByRole: "Retailer",
-        reason: "Retailer set consumer price",
-        timestamp: new Date()
-      });
-      await priceTrace.save();
-    }
-
-    // Finalize certificate with updated price trace
-    const certResult = await CertificateService.generateCertificate(cropBatch._id);
-    if (certResult.success) {
-      cropBatch.cropCertificateCID = certResult.certificateCID;
-      await cropBatch.save();
-    }
-
-    res.json({
-      success: true,
-      message: "Order receipt confirmed",
-      order: {
-        _id: order._id,
-        status: order.status,
-        deliveryStatus: order.deliveryStatus,
-        receivedTimestamp: order.receivedTimestamp,
-        retailerPrice: order.retailerPrice
-      },
-      certificate: certResult.success ? {
-        cid: certResult.certificateCID,
-        url: certResult.certificateUrl
-      } : null
-    });
-  } catch (error) {
-    console.error("❌ Confirm receipt error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Error confirming receipt",
-      error: error.message
-    });
-  }
-});
-
-// Get retailer orders (new API)
-app.get("/api/retailer/orders", async (req, res) => {
-  try {
-    const { retailerId, status } = req.query;
-
-    if (!retailerId) {
-      return res.status(400).json({
-        success: false,
-        message: "Retailer ID is required"
-      });
-    }
-
-    let filter = { retailerId };
-    if (status) filter.status = status;
-
-    const orders = await RetailerOrder.find(filter)
-      .populate("distributorId", "fullName companyName")
-      .populate("distributorListingId", "badgeId productName")
-      .populate("cropBatchId", "cropId")
-      .sort({ orderDate: -1 });
-
-    res.json({
-      success: true,
-      orders: orders.map(order => ({
-        _id: order._id,
-        productName: order.productName,
-        quantity: order.quantity,
-        unitPrice: order.unitPrice,
-        totalPrice: order.totalPrice,
-        paymentMethod: order.paymentMethod,
-        paymentStatus: order.paymentStatus,
-        deliveryStatus: order.deliveryStatus,
-        status: order.status,
-        retailerPrice: order.retailerPrice,
-        orderDate: order.orderDate,
-        receivedTimestamp: order.receivedTimestamp,
-        distributor: {
-          name: order.distributorId?.fullName,
-          companyName: order.distributorId?.companyName
-        }
-      }))
-    });
-  } catch (error) {
-    console.error("❌ Get retailer orders error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Error fetching orders"
-    });
-  }
-});
-
-// Legacy route
-app.post("/retailer/order", async (req, res) => {
-  try {
-    console.log("Retailer placing order:", req.body);
-=======
->>>>>>> parent of 4f8dcd9 (improvement)
 
 
 
@@ -4165,23 +3809,9 @@ app.post("/retailer/order", async (req, res) => {
 
 
 
-<<<<<<< HEAD
-  } catch (err) {
-    console.error("Error placing retailer order:", err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-// Legacy route - redirects to new API
-app.get("/retailer/orders/:retailerId", async (req, res) => {
-  req.query.retailerId = req.params.retailerId;
-  req.url = "/api/retailer/orders";
-  app._router.handle(req, res);
-});
-=======
 
 
 
->>>>>>> parent of 4f8dcd9 (improvement)
 
 
 // ==================== ADMIN VERIFICATION APIs ====================

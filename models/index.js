@@ -342,6 +342,9 @@ const cropBatchSchema = new mongoose.Schema({
   blockchainCropHash: { type: String },
   badgeId: { type: String },
   
+  // Event Ledger
+  latestBlockHash: { type: String },
+  
   // Timestamps
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
@@ -537,6 +540,7 @@ const productSchema = new mongoose.Schema({
   soilPh: Number,
   labReport: String,
   qrPath: String,
+  latestBlockHash: { type: String },
 });
 
 export const Product = mongoose.model("Product", productSchema);
@@ -649,4 +653,41 @@ const distributorOrderSchema = new mongoose.Schema({
 });
 
 export const DistributorOrder = mongoose.model("DistributorOrder", distributorOrderSchema);
+
+// ============ EVENT LEDGER SCHEMA (Immutable Blockchain-Style Blocks) ============
+const eventLedgerSchema = new mongoose.Schema({
+  productId: { type: String, required: true },
+  cropBatchId: { type: mongoose.Schema.Types.ObjectId, ref: "CropBatch" },
+  eventType: { 
+    type: String, 
+    required: true,
+    enum: [
+      "PRODUCT_CREATED",
+      "SENT_TO_DISTRIBUTOR",
+      "DISTRIBUTOR_ACCEPTED",
+      "CHECKOUT_INITIATED_BY_DISTRIBUTOR",
+      "PRODUCT_UPGRADED_BY_DISTRIBUTOR",
+      "PRODUCT_LISTED_IN_DISTRIBUTOR_MARKETPLACE",
+      "RETAILER_REQUESTED_TO_BUY",
+      "DISTRIBUTOR_LOGISTICS_ADDED",
+      "RETAILER_CHECKOUT_INITIATED",
+      "RETAILER_ACCEPTED_DELIVERY",
+      "CERTIFICATE_GENERATED",
+      "QR_GENERATED"
+    ]
+  },
+  cid: { type: String, required: true },
+  previousHash: { type: String },
+  currentHash: { type: String, required: true },
+  timestamp: { type: Date, default: Date.now, required: true },
+  actorId: { type: mongoose.Schema.Types.ObjectId },
+  actorRole: { type: String, enum: ["Farmer", "Distributor", "Retailer", "Admin"] }
+});
+
+eventLedgerSchema.index({ productId: 1 });
+eventLedgerSchema.index({ cropBatchId: 1 });
+eventLedgerSchema.index({ currentHash: 1 });
+eventLedgerSchema.index({ timestamp: -1 });
+
+export const EventLedger = mongoose.model("EventLedger", eventLedgerSchema);
 
