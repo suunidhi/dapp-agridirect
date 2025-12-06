@@ -812,95 +812,66 @@ app.post("/api/farmer/crops/:cropId/select-distributor", async (req, res) => {
   }
 });
 
-// Legacy route
+// Legacy route - simplified to use only productId
 app.post("/distributor/newRequest", async (req, res) => {
   try {
-    const { farmerId, distributorId, cropBatchId, productId } = req.body;
+    const { farmerId, distributorId, productId } = req.body;
 
-    if (!farmerId || !distributorId || (!cropBatchId && !productId)) {
-      return res.json({ success: false, message: "Missing data" });
+    console.log("[DEBUG] /distributor/newRequest called with:");
+    console.log("   farmerId:", farmerId);
+    console.log("   distributorId:", distributorId);
+    console.log("   productId:", productId);
+
+    if (!farmerId || !distributorId || !productId) {
+      console.log("[ERROR] Missing required data in request");
+      return res.json({ success: false, message: "Missing data (farmerId, distributorId, productId required)" });
     }
 
-    // Try to load cropBatch by id first
-    let cropBatch = null;
-    if (cropBatchId) {
-      cropBatch = await CropBatch.findById(cropBatchId);
+    // Load the product
+    console.log("[DEBUG] Loading Product with id:", productId);
+    const product = await Product.findById(productId).lean();
+    if (!product) {
+      console.log("[ERROR] Product not found for productId:", productId);
+      return res.json({ success: false, message: 'Product not found' });
     }
+    console.log("[DEBUG] Product found:", product.name);
 
-    // If cropBatch not found but legacy productId provided, create a CropBatch and PRODUCT_CREATED event
-    if (!cropBatch && productId) {
-      try {
-        const legacyProduct = await Product.findById(productId).lean();
-        if (!legacyProduct) {
-          return res.json({ success: false, message: 'Product not found' });
-        }
-
-        // Generate cropId and build cropBatch doc
-        const cropId = CertificateService.generateCropId(legacyProduct.farmerId?.toString() || farmerId);
-        const imageCID = legacyProduct.imageCID || (legacyProduct.image ? null : null);
-
-        const newCrop = new CropBatch({
-          cropId,
-          farmerId: legacyProduct.farmerId || farmerId,
-          productName: legacyProduct.name || legacyProduct.productName || 'Unnamed',
-          category: legacyProduct.category || 'others',
-          images: legacyProduct.imageCID ? [legacyProduct.imageCID] : (legacyProduct.images || []),
-          imageCID: imageCID || (legacyProduct.imageCID || null) || (legacyProduct.images && legacyProduct.images[0]) || null,
-          quantity: legacyProduct.quantity || 0,
-          unit: 'kg',
-          pricePerUnitFarmer: legacyProduct.price || legacyProduct.pricePerUnitFarmer || 0,
-          harvestDate: legacyProduct.harvestDate || new Date(),
-          status: 'created',
-          history: [{ type: 'batchCreated', actorId: legacyProduct.farmerId || farmerId, actorRole: 'Farmer', timestamp: new Date(), metadata: { productName: legacyProduct.name || legacyProduct.productName } }]
-        });
-
-        await newCrop.save();
-
-        // Create PRODUCT_CREATED event block
-        const ev = await EventLedgerService.createEventBlock({
-          productId: cropId,
-          cropBatchId: newCrop._id,
-          eventType: 'PRODUCT_CREATED',
-          eventData: {
-            productName: newCrop.productName,
-            quantity: newCrop.quantity,
-            pricePerUnitFarmer: newCrop.pricePerUnitFarmer,
-            imageCIDs: newCrop.imageCID ? [newCrop.imageCID] : (newCrop.images || [])
-          },
-          actorId: newCrop.farmerId,
-          actorRole: 'Farmer'
-        });
-
-        if (ev.success) {
-          newCrop.latestBlockHash = ev.blockHash;
-          await newCrop.save();
-        }
-
-        // Link legacy product -> cropBatch if possible
-        try { await Product.findByIdAndUpdate(productId, { cropBatchId: newCrop._id }); } catch (e) { /* ignore */ }
-
-        cropBatch = newCrop;
-      } catch (err) {
-        console.error('Error creating cropBatch from legacy product:', err);
-        return res.json({ success: false, message: 'Error creating crop batch' });
+    // Check for existing pending request
+    try {
+      const existing = await DistributorRequest.findOne({
+        distributorId,
+        cropBatchId: productId,  // Use productId as the identifier since we're not using CropBatch
+        status: 'pending'
+      });
+      if (existing) {
+        console.log("[DEBUG] Existing pending request found:", existing._id.toString());
+        return res.json({ success: false, message: 'A pending request already exists for this distributor and product', requestId: existing._id });
       }
+    } catch (e) {
+      console.warn('Could not check for existing request:', e.message);
     }
 
-    if (!cropBatch) {
-      return res.json({ success: false, message: "Crop batch not found" });
-    }
-
+    // Create the request (using productId stored in cropBatchId field for backward compat)
     const newReq = new DistributorRequest({
       farmerId,
       distributorId,
-      cropBatchId: cropBatch._id
+      cropBatchId: productId  // Store productId here for legacy compatibility
     });
     await newReq.save();
 
-    res.json({ success: true, message: "Request sent successfully" });
+    // Log exactly what was saved for debugging
+    console.log("[DEBUG] ✅ NEW DISTRIBUTOR REQUEST CREATED:");
+    console.log("   Request _id:", newReq._id.toString());
+    console.log("   Farmer ID:", farmerId);
+    console.log("   Distributor ID:", distributorId);
+    console.log("   Product ID (in cropBatchId field):", productId);
+    console.log("   Status:", newReq.status);
+    console.log("   Created At:", newReq.createdAt);
+
+    res.json({ success: true, message: "Request sent successfully", requestId: newReq._id });
   } catch (err) {
-    console.log(err);
-    res.json({ success: false, message: "Server error" });
+    console.error("[ERROR] /distributor/newRequest error:", err.message);
+    res.json({ success: false, message: "Server error: " + err.message });
   }
 });
 // Get distributor requests/notifications
@@ -958,25 +929,46 @@ app.get("/distributor/getRequests/:id", async (req, res) => {
   try {
     const { id } = req.params;  // distributorId (string from URL)
     
-    // Convert string ID to MongoDB ObjectId
-    let distributorObjectId;
-    try {
+    // Accept either a MongoDB ObjectId or a plain string for distributorId
+    let distributorObjectId = id;
+    if (mongoose.Types.ObjectId.isValid(id)) {
       distributorObjectId = new mongoose.Types.ObjectId(id);
-    } catch (e) {
-      console.log("[DEBUG] Invalid distributorId format:", id);
-      return res.json({ success: false, message: "Invalid distributor ID format", requests: [] });
+      console.log("[DEBUG] Querying pending requests for distributorId (ObjectId):", distributorObjectId.toString());
+    } else {
+      console.log("[DEBUG] distributorId is not an ObjectId, querying by raw string:", id);
     }
-    
-    console.log("[DEBUG] Querying pending requests for distributorId:", distributorObjectId.toString());
-    
-    // Fetch pending distributor requests
-    const requests = await DistributorRequest.find({
+
+    // Fetch pending distributor requests (works with ObjectId or string)
+    let requests = await DistributorRequest.find({
       distributorId: distributorObjectId,
       status: "pending"
     })
       .populate("farmerId", "fullName farmName location email mobileNumber")
       .populate("cropBatchId")   // ✅ MATCHES YOUR SCHEMA
       .sort({ createdAt: -1 });
+
+    console.log("[DEBUG] Query params - distributorId:", distributorObjectId, "type:", typeof distributorObjectId);
+    console.log("[DEBUG] Found", requests.length, "pending requests for this distributorId");
+
+    // If no requests found and the provided id looks like a wallet/metamask address
+    // (or any other string stored in localStorage), try resolving it to a Distributor
+    // document by `metamaskAddress` and re-run the query using that _id.
+    if ((!requests || requests.length === 0) && typeof id === 'string') {
+      try {
+        console.log('[DEBUG] No requests found with provided distributorId. Trying metamaskAddress lookup for:', id);
+        const distributorDoc = await Distributor.findOne({ metamaskAddress: id }).lean();
+        if (distributorDoc && distributorDoc._id) {
+          console.log('[DEBUG] Found distributor by metamaskAddress:', distributorDoc._id.toString());
+          requests = await DistributorRequest.find({ distributorId: distributorDoc._id, status: 'pending' })
+            .populate("farmerId", "fullName farmName location email mobileNumber")
+            .populate("cropBatchId")
+            .sort({ createdAt: -1 });
+          console.log('[DEBUG] After metamaskAddress lookup, found', requests.length, 'requests');
+        }
+      } catch (e) {
+        console.warn('[WARN] Error resolving distributor by metamaskAddress:', e.message);
+      }
+    }
     
     console.log("[DEBUG] Found", requests.length, "pending requests");
 
@@ -984,15 +976,92 @@ app.get("/distributor/getRequests/:id", async (req, res) => {
     const transformedRequests = await Promise.all(
       requests.map(async (r) => {
         const farmer = r.farmerId;
-        const crop = r.cropBatchId;   // ✅ MATCHES YOUR SCHEMA
+        let crop = r.cropBatchId;   // ✅ MATCHES YOUR SCHEMA
 
-        // Build image URL
+        // Handle legacy cases where `cropBatchId` was used to store a Product _id
+        // If `crop` looks like an ObjectId (not populated) or doesn't contain expected crop fields,
+        // attempt to load it as a Product and normalize the shape.
+        try {
+          // If crop is a plain ObjectId or an object without crop/product details
+          const looksLikeObjectId = crop && (typeof crop === 'object') && !crop.productName && !crop.name && !crop.quantity;
+          if (looksLikeObjectId) {
+            const maybeId = crop._id ? crop._id : crop; // could be ObjectId or populated
+            if (maybeId && mongoose.Types.ObjectId.isValid(maybeId.toString())) {
+              const prod = await Product.findById(maybeId.toString()).lean();
+              if (prod) {
+                crop = {
+                  _id: prod._id,
+                  productName: prod.name || prod.productName || null,
+                  quantity: prod.quantity || null,
+                  pricePerUnitFarmer: prod.price || prod.pricePerUnitFarmer || null,
+                  category: prod.category || null,
+                  images: prod.images || (prod.image ? [prod.image] : []),
+                  imageCID: prod.imageCID || null,
+                  cropId: prod.cropId || null,
+                  farmerId: prod.farmerId || null
+                };
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Could not resolve cropBatchId as legacy Product id:', e.message);
+        }
+
+        // Some legacy requests may have `productId` instead of `cropBatchId` stored.
+        // If cropBatch is missing, attempt to load the legacy Product and treat it as the crop source.
+        if (!crop && r.productId) {
+          try {
+            const prodId = (typeof r.productId === 'object' && r.productId._id) ? r.productId._id : r.productId;
+            if (prodId) {
+              const legacyProduct = await Product.findById(prodId).lean();
+              if (legacyProduct) {
+                crop = {
+                  _id: legacyProduct._id,
+                  productName: legacyProduct.name || legacyProduct.productName || null,
+                  quantity: legacyProduct.quantity || null,
+                  pricePerUnitFarmer: legacyProduct.price || legacyProduct.pricePerUnitFarmer || null,
+                  category: legacyProduct.category || null,
+                  images: legacyProduct.images || (legacyProduct.image ? [legacyProduct.image] : []),
+                  imageCID: legacyProduct.imageCID || null,
+                  cropId: legacyProduct.cropId || null,
+                  farmerId: legacyProduct.farmerId || null
+                };
+              }
+            }
+          } catch (e) {
+            console.warn("Could not load legacy product for request:", e.message);
+          }
+        }
+
+        // Build image URL (handle CropBatch images, legacy Product images, and IPFS CIDs)
         let image = null;
         if (crop) {
           if (crop.imageCID && crop.imageCID !== "N/A") {
             image = `${req.protocol}://${req.get("host")}/ipfs/${crop.imageCID}`;
           } else if (Array.isArray(crop.images) && crop.images.length > 0) {
-            image = `${req.protocol}://${req.get("host")}/uploads/${crop.images[0]}`;
+            const firstImg = crop.images[0];
+            if (typeof firstImg === 'string') {
+              // If it's already a full URL (http(s) or ipfs://), use it directly or convert ipfs:// to gateway
+              if (firstImg.startsWith('http://') || firstImg.startsWith('https://')) {
+                image = firstImg;
+              } else if (firstImg.startsWith('ipfs://')) {
+                const cid = firstImg.replace('ipfs://', '');
+                image = `${req.protocol}://${req.get("host")}/ipfs/${cid}`;
+              } else {
+                // Treat as server uploads filename
+                image = `${req.protocol}://${req.get("host")}/uploads/${firstImg}`;
+              }
+            }
+          } else if (crop.image && typeof crop.image === 'string') {
+            // Some Product records store `image` as a full URL or a filename
+            if (crop.image.startsWith('http://') || crop.image.startsWith('https://')) {
+              image = crop.image;
+            } else if (crop.image.startsWith('ipfs://')) {
+              const cid = crop.image.replace('ipfs://', '');
+              image = `${req.protocol}://${req.get("host")}/ipfs/${cid}`;
+            } else {
+              image = `${req.protocol}://${req.get("host")}/uploads/${crop.image}`;
+            }
           }
         }
 
@@ -1187,10 +1256,55 @@ app.post("/distributor/acceptRequest/:id", async (req, res) => {
 
     console.log("[DEBUG] Found request, cropBatchId:", request.cropBatchId);
     
-    const cropBatch = await CropBatch.findById(request.cropBatchId);
+    let cropBatch = await CropBatch.findById(request.cropBatchId);
     if (!cropBatch) {
       console.log("[DEBUG] CropBatch not found for ID:", request.cropBatchId);
-      return res.json({ success: false, message: "Crop batch not found" });
+
+      // Attempt to handle legacy requests where cropBatchId points to a Product id
+      try {
+        if (request.cropBatchId && mongoose.Types.ObjectId.isValid(request.cropBatchId.toString())) {
+          const prod = await Product.findById(request.cropBatchId).lean();
+          if (prod) {
+            console.log('[DEBUG] Found Product for legacy cropBatchId, creating CropBatch from Product:', prod._id);
+            const newCropBatch = new CropBatch({
+              cropId: prod._id.toString(),
+              farmerId: prod.farmerId,
+              farmerMetamaskAddress: prod.farmerMetamaskAddress || undefined,
+              productName: prod.name || prod.productName || 'Unnamed',
+              category: prod.category || 'others',
+              images: prod.images || (prod.image ? [prod.image] : []),
+              imageCID: prod.imageCID || null,
+              quantity: prod.quantity || 0,
+              unit: prod.unit || 'kg',
+              pricePerUnitFarmer: prod.price || 0,
+              harvestDate: prod.harvestDate ? new Date(prod.harvestDate) : new Date(),
+              status: 'created',
+            });
+
+            newCropBatch.history.push({
+              type: 'batchCreated',
+              actorId: prod.farmerId,
+              actorRole: 'Farmer',
+              timestamp: new Date(),
+              metadata: { fromLegacyProduct: true }
+            });
+
+            await newCropBatch.save();
+            // Update the request to point to the newly created cropBatch
+            request.cropBatchId = newCropBatch._id;
+            await request.save();
+            cropBatch = newCropBatch;
+            console.log('[DEBUG] Created CropBatch from Product, id:', cropBatch._id.toString());
+          }
+        }
+      } catch (e) {
+        console.warn('[WARN] Failed to create CropBatch from Product for legacy request:', e.message);
+      }
+    }
+
+    if (!cropBatch) {
+      console.log('[DEBUG] Still no CropBatch available after legacy handling for request:', request._id);
+      return res.json({ success: false, message: 'Crop batch not found' });
     }
 
     console.log("[DEBUG] Found crop batch, updating status...");
@@ -4326,8 +4440,10 @@ app.get("/farmer/getProductType", async (req, res) => {
 app.get("/distributor/ordersToFarmer/:distributorId", async (req, res) => {
   try {
     const orders = await Order.find({ distributorId: req.params.distributorId })
-      .populate("farmerId", "name farmName location")
-      .populate("productId", "name price");
+      // Farmer schema uses `fullName`; populate that field so frontend can read it.
+      .populate("farmerId", "fullName farmName location")
+      // Also populate `image` for legacy Product model so UI can show images
+      .populate("productId", "name price image");
 
     res.json({ success: true, orders });
   } catch (err) {

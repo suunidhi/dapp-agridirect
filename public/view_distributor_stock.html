@@ -212,10 +212,38 @@ document.querySelector(".container-box").prepend(pendingContainer);
 async function loadPendingRequests() {
   try {
     console.log("[DEBUG] Fetching pending requests for distributorId:", distributorId);
-    const res = await fetch(`http://localhost:5000/distributor/getRequests/${encodeURIComponent(distributorId)}`);
-    const data = await res.json();
-    
+    let res = await fetch(`http://localhost:5000/distributor/getRequests/${encodeURIComponent(distributorId)}`);
+    let data = await res.json();
+
     console.log("[DEBUG] Response from GET /distributor/getRequests:", data);
+
+    // If no requests returned, try legacy notifications endpoint and normalize
+    if ((!data.success || !data.requests || data.requests.length === 0)) {
+      console.log("[DEBUG] No requests from /distributor/getRequests, trying /api/distributor/notifications");
+      try {
+        const res2 = await fetch(`http://localhost:5000/api/distributor/notifications?distributorId=${encodeURIComponent(distributorId)}`);
+        const data2 = await res2.json();
+        console.log("[DEBUG] Response from /api/distributor/notifications:", data2);
+        if (data2 && data2.success && Array.isArray(data2.requests) && data2.requests.length > 0) {
+          data = { success: true, requests: data2.requests.map(r => ({
+            _id: r._id || null,
+            farmerId: r.farmer || r.farmerId || null,
+            productId: r.cropBatch ? {
+              _id: r.cropBatch._id || null,
+              name: r.cropBatch.productName || r.cropBatch.name || null,
+              quantity: r.cropBatch.quantity || null,
+              price: r.cropBatch.pricePerUnit || r.cropBatch.pricePerUnitFarmer || null,
+              category: r.cropBatch.category || null,
+            } : (r.productId || null),
+            eventLedger: r.eventLedger || null,
+            status: r.status || 'pending',
+            createdAt: r.createdAt || null
+          })) };
+        }
+      } catch (e) {
+        console.warn("[WARN] Fallback notifications fetch failed:", e);
+      }
+    }
 
     if (!data.success || !data.requests || data.requests.length === 0) {
       console.log("[DEBUG] No pending requests returned from backend");
@@ -224,20 +252,65 @@ async function loadPendingRequests() {
     }
 
     console.log("[DEBUG] Found", data.requests.length, "pending requests");
-    
+
     data.requests.forEach(req => {
       const card = document.createElement("div");
       card.className = "product-card";
       card.style.marginBottom = "20px";
 
+      // Resolve farmer name (server maps fullName into `name`, prefer `name` then `fullName`)
+      const farmerName = req.farmerId?.name || req.farmerId?.fullName || req.farmerId?._id || 'N/A';
+
+      // Format location (can be object or string)
+      const rawLoc = req.farmerId?.location;
+      let locationStr = 'N/A';
+      if (rawLoc) {
+        if (typeof rawLoc === 'string') locationStr = rawLoc;
+        else {
+          const parts = [];
+          if (rawLoc.addressLine1) parts.push(rawLoc.addressLine1);
+          if (rawLoc.city) parts.push(rawLoc.city);
+          if (rawLoc.district) parts.push(rawLoc.district);
+          if (rawLoc.state) parts.push(rawLoc.state);
+          if (rawLoc.pincode) parts.push(rawLoc.pincode);
+          locationStr = parts.length ? parts.join(', ') : JSON.stringify(rawLoc);
+        }
+      }
+
+      // Normalize product data coming from different backend shapes
+      const rawProduct = req.productId || req.product || req.cropBatchId || {};
+      const prod = {
+        _id: rawProduct._id || rawProduct.cropId || rawProduct.id || null,
+        name: rawProduct.name || rawProduct.productName || rawProduct.productName || null,
+        quantity: rawProduct.quantity || rawProduct.qty || null,
+        price: rawProduct.price || rawProduct.pricePerUnitFarmer || rawProduct.pricePerUnit || null,
+        images: Array.isArray(rawProduct.images) ? rawProduct.images : (rawProduct.images ? [rawProduct.images] : (rawProduct.image ? [rawProduct.image] : [])),
+        imageCID: rawProduct.imageCID || rawProduct.imageCid || null
+      };
+
+      // Build a safe image URL from available fields
+      let imageSrc = 'http://localhost:5000/uploads/placeholder.png';
+      const origin = window.location.origin || (window.location.protocol + '//' + window.location.host);
+      if (prod.imageCID) {
+        imageSrc = `${origin}/ipfs/${prod.imageCID}`;
+      } else if (prod.images && prod.images.length > 0) {
+        const first = prod.images[0];
+        if (typeof first === 'string') {
+          if (first.startsWith('http://') || first.startsWith('https://')) imageSrc = first;
+          else if (first.startsWith('ipfs://')) imageSrc = `${origin}/ipfs/${first.replace('ipfs://','')}`;
+          else imageSrc = `${origin}/uploads/${first}`;
+        }
+      }
+
       card.innerHTML = `
         <div style="display:flex;align-items:center;gap:12px;">
-          <img src="${req.productId?.image || 'http://localhost:5000/uploads/placeholder.png'}" alt="product" style="width:90px;height:72px;object-fit:cover;border-radius:8px;">
+          <img src="${imageSrc}" alt="product" style="width:90px;height:72px;object-fit:cover;border-radius:8px;">
           <div style="flex:1;">
-            <p style="margin:0 0 6px;"><strong>Product:</strong> ${req.productId?.name || 'N/A'}</p>
-            <p style="margin:0 0 6px;"><strong>Farmer:</strong> ${req.farmerId?.name || 'N/A'}</p>
-            <p style="margin:0 0 6px;"><strong>Quantity:</strong> ${req.productId?.quantity || 'N/A'} kg</p>
-            <p style="margin:0 0 6px;"><strong>Price:</strong> ₹${req.productId?.price || 'N/A'}</p>
+            <p style="margin:0 0 6px;"><strong>Product:</strong> ${prod.name || 'N/A'}</p>
+            <p style="margin:0 0 6px;"><strong>Farmer:</strong> ${farmerName}</p>
+            <p style="margin:0 0 6px;"><strong>Quantity:</strong> ${prod.quantity != null ? prod.quantity : 'N/A'} kg</p>
+            <p style="margin:0 0 6px;"><strong>Price:</strong> ₹${prod.price != null ? prod.price : 'N/A'}</p>
+            <p style="margin:0 0 6px;"><strong>Location:</strong> ${locationStr}</p>
           </div>
         </div>
 
@@ -246,7 +319,7 @@ async function loadPendingRequests() {
         </div>
 
         <div style="margin-top:10px;display:flex;gap:8px;">
-          <button class="btn btn-success" style="border-radius:6px;width:100px;font-weight:600;padding:5px 14px;" onclick="acceptRequest('${req._id}','${req.productId?._id}','${req.productId?.name}','${req.productId?.price}','${req.farmerId?._id}')">Accept</button>
+          <button class="btn btn-success" style="border-radius:6px;width:100px;font-weight:600;padding:5px 14px;" onclick="acceptRequest('${req._id}','${prod._id}','${encodeURIComponent(prod.name||'')}',${prod.price != null ? prod.price : 'null'},'${req.farmerId?._id}')">Accept</button>
           <button class="btn btn-danger" style="border-radius:6px;width:100px;font-weight:600;padding:5px 14px;" onclick="rejectRequest('${req._id}', '${req.farmerId?._id}')">Reject</button>
         </div>
       `;
@@ -294,9 +367,22 @@ loadPendingRequests();
           <img src="${img}" alt="${item.productId?.name || 'Product'}">
           <h5 style="margin-top:10px;">${item.productId?.name || 'Unnamed Product'}</h5>
 
-          <p><strong>Farmer:</strong> ${item.farmerId?.name || 'N/A'}</p>
+          <p><strong>Farmer:</strong> ${(() => {
+            return item.farmerId?.name || item.farmerId?.fullName || 'N/A';
+          })()}</p>
           <p><strong>Farm:</strong> ${item.farmerId?.farmName || 'N/A'}</p>
-          <p><strong>Location:</strong> ${item.farmerId?.location || 'N/A'}</p>
+          <p><strong>Location:</strong> ${(() => {
+            const raw = item.farmerId?.location;
+            if (!raw) return 'N/A';
+            if (typeof raw === 'string') return raw;
+            const parts = [];
+            if (raw.addressLine1) parts.push(raw.addressLine1);
+            if (raw.city) parts.push(raw.city);
+            if (raw.district) parts.push(raw.district);
+            if (raw.state) parts.push(raw.state);
+            if (raw.pincode) parts.push(raw.pincode);
+            return parts.length ? parts.join(', ') : JSON.stringify(raw);
+          })()}</p>
 
           <p><strong>Quantity:</strong> ${item.quantity} kg</p>
           <p><strong>Total Price:</strong> ₹${item.totalPrice}</p>

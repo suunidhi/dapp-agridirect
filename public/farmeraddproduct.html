@@ -485,7 +485,23 @@ formData.append("preferences", JSON.stringify(selectedPreferences));
 
         if (response.ok && data.status === "success") {
           alert("✅ Product added successfully!");
-          this.reset();
+          
+          // Auto-set localStorage for distributor selection and redirect
+          const productId = data.product?._id;  // Server returns product object with _id
+          const farmerId = localStorage.getItem("farmerId");
+          
+          console.log("[DEBUG] Server response received. productId:", productId, "farmerId:", farmerId);
+          
+          if (productId && farmerId) {
+            localStorage.setItem("selectedProductId", productId);
+            localStorage.setItem("selectedProductOwnerFarmerId", farmerId);
+            console.log("[DEBUG] ✅ localStorage set. Redirecting to choose distributor for product:", productId);
+            window.location.href = "choose_distributor.html";
+          } else {
+            console.log("[DEBUG] ❌ Could not auto-redirect. productId:", productId, "farmerId:", farmerId);
+            console.log("[DEBUG] Full response:", data);
+            this.reset();
+          }
         } else {
           alert("❌ Failed to add product: " + (data.message || "Unknown error"));
         }

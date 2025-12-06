@@ -139,6 +139,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   const tbody = document.querySelector("#distributorTable tbody");
   let distributors = [];
 
+  // Debug: show what's in localStorage
+  console.log("[DEBUG] localStorage values:");
+  console.log("   selectedProductId:", localStorage.getItem("selectedProductId"));
+  console.log("   selectedProductOwnerFarmerId:", localStorage.getItem("selectedProductOwnerFarmerId"));
+  console.log("   farmerId:", localStorage.getItem("farmerId"));
+
   try {
     const res = await fetch("http://localhost:5000/distributors");
     const data = await res.json();
@@ -176,8 +182,11 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     const productId = localStorage.getItem("selectedProductId");
     const farmerId = localStorage.getItem("selectedProductOwnerFarmerId");
-    const cropBatchId = localStorage.getItem("selectedProductCropBatchId");
 
+    console.log("[DEBUG] Choose button clicked:");
+    console.log("   farmerId:", farmerId);
+    console.log("   productId:", productId);
+    console.log("   distributorId:", selected._id || selected.id);
 
     if (!farmerId) {
         alert("Please login first!");
@@ -196,36 +205,43 @@ document.addEventListener("DOMContentLoaded", async () => {
         localStorage.setItem("selectedDistributorId", selected._id || selected.id);
         localStorage.setItem("selectedDistributorName", selected.name);
 
-        // Save the pending product request for distributor
-const requestPayload = {
-  farmerId,
-  distributorId: selected._id || selected.id,
-  cropBatchId: cropBatchId || productId
-};
+        // Create request with farmerId, distributorId, and productId
+        const requestPayload = {
+          farmerId: farmerId,
+          distributorId: selected._id || selected.id,
+          productId: productId
+        };
 
-fetch("http://localhost:5000/distributor/newRequest", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(requestPayload)
-})
-.then(res => res.json())
-.then(data => {
-    alert(`✅ Distributor "${selected.name}" selected successfully!`);
-    window.location.href = "marketplace.html";
-})
-.catch(err => {
-    console.error(err);
-    alert("Error sending request to distributor");
-});
+        console.log("[DEBUG] Sending request payload:", requestPayload);
 
+        fetch("http://localhost:5000/distributor/newRequest", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestPayload)
+        })
+        .then(res => res.json())
+        .then(data => {
+            console.log("[DEBUG] Server response:", data);
+            if (data.success) {
+                alert(`✅ Distributor "${selected.name}" selected successfully!`);
+                // Clear localStorage for next product
+                localStorage.removeItem("selectedProductId");
+                localStorage.removeItem("selectedProductOwnerFarmerId");
+                window.location.href = "marketplace.html";
+            } else {
+                alert(`⚠️ ${data.message}`);
+            }
+        })
+        .catch(err => {
+            console.error("[ERROR]", err);
+            alert("Error sending request to distributor");
+        });
 
     } catch (err) {
         console.error(err);
         alert("❌ Something went wrong. Please try again later.");
     }
-});
-
-
+  });
 });
 </script>
 

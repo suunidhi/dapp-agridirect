@@ -32,7 +32,7 @@
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "chai": "^4.3.10",
     "hardhat": "^2.22.0",
-    "nodemon": "^3.1.10"
+    "nodemon": "^3.1.11"
   },
   "scripts": {
     "start": "node server.js",
