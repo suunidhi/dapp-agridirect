@@ -76,7 +76,8 @@ class BlockchainService {
    */
   getContractWithSigner(signer) {
     if (!this.contractABI || !this.contractAddress) {
-      throw new Error('Contract not initialized. Please compile and deploy first.');
+      console.warn('⚠️ Contract not initialized. Returning null.');
+      return null;
     }
     return new ethers.Contract(this.contractAddress, this.contractABI, signer);
   }
@@ -101,7 +102,12 @@ class BlockchainService {
   async registerFarmer(farmerAddress, profileHash, profileCIDHash) {
     try {
       if (!this.contract) {
-        throw new Error('Contract not initialized');
+        console.warn('⚠️ Contract not initialized. Blockchain registration skipped.');
+        return {
+          success: false,
+          error: 'Contract not initialized. System will continue without blockchain registration.',
+          skipped: true
+        };
       }
 
       const tx = await this.contract.registerFarmer(
@@ -116,10 +122,11 @@ class BlockchainService {
         txHash: tx.hash
       };
     } catch (error) {
-      console.error('❌ Register farmer error:', error);
+      console.warn('⚠️ Blockchain registration failed (non-critical):', error.message);
       return {
         success: false,
-        error: error.message
+        error: error.message,
+        skipped: true
       };
     }
   }
@@ -130,7 +137,12 @@ class BlockchainService {
   async registerDistributor(distributorAddress, profileHash, profileCIDHash) {
     try {
       if (!this.contract) {
-        throw new Error('Contract not initialized');
+        console.warn('⚠️ Contract not initialized. Blockchain registration skipped.');
+        return {
+          success: false,
+          error: 'Contract not initialized. System will continue without blockchain registration.',
+          skipped: true
+        };
       }
 
       const tx = await this.contract.registerDistributor(
@@ -145,10 +157,11 @@ class BlockchainService {
         txHash: tx.hash
       };
     } catch (error) {
-      console.error('❌ Register distributor error:', error);
+      console.warn('⚠️ Blockchain registration failed (non-critical):', error.message);
       return {
         success: false,
-        error: error.message
+        error: error.message,
+        skipped: true
       };
     }
   }
@@ -159,7 +172,12 @@ class BlockchainService {
   async registerRetailer(retailerAddress, profileHash, profileCIDHash) {
     try {
       if (!this.contract) {
-        throw new Error('Contract not initialized');
+        console.warn('⚠️ Contract not initialized. Blockchain registration skipped.');
+        return {
+          success: false,
+          error: 'Contract not initialized. System will continue without blockchain registration.',
+          skipped: true
+        };
       }
 
       const tx = await this.contract.registerRetailer(
@@ -174,10 +192,11 @@ class BlockchainService {
         txHash: tx.hash
       };
     } catch (error) {
-      console.error('❌ Register retailer error:', error);
+      console.warn('⚠️ Blockchain registration failed (non-critical):', error.message);
       return {
         success: false,
-        error: error.message
+        error: error.message,
+        skipped: true
       };
     }
   }
@@ -187,6 +206,14 @@ class BlockchainService {
    */
   async createCrop(cropId, certificateCID, signer) {
     try {
+      if (!this.contractABI || !this.contractAddress) {
+        console.warn('⚠️ Contract not initialized. Blockchain crop creation skipped.');
+        return {
+          success: false,
+          error: 'Contract not initialized',
+          skipped: true
+        };
+      }
       const contract = this.getContractWithSigner(signer);
       
       const tx = await contract.createCrop(cropId, certificateCID);
@@ -198,10 +225,11 @@ class BlockchainService {
         cropHash: this.hashString(cropId + certificateCID)
       };
     } catch (error) {
-      console.error('❌ Create crop error:', error);
+      console.warn('⚠️ Blockchain crop creation failed (non-critical):', error.message);
       return {
         success: false,
-        error: error.message
+        error: error.message,
+        skipped: true
       };
     }
   }
@@ -212,6 +240,13 @@ class BlockchainService {
   async assignDistributor(cropHash, signer) {
     try {
       const contract = this.getContractWithSigner(signer);
+      if (!contract) {
+        return {
+          success: false,
+          error: 'Contract not initialized',
+          skipped: true
+        };
+      }
       
       const tx = await contract.assignDistributor(cropHash);
       await tx.wait();
@@ -221,10 +256,11 @@ class BlockchainService {
         txHash: tx.hash
       };
     } catch (error) {
-      console.error('❌ Assign distributor error:', error);
+      console.warn('⚠️ Blockchain assign distributor failed (non-critical):', error.message);
       return {
         success: false,
-        error: error.message
+        error: error.message,
+        skipped: true
       };
     }
   }
@@ -235,6 +271,13 @@ class BlockchainService {
   async recordLogisticsDispatch(cropHash, vehicleNumber, toAddress, signer) {
     try {
       const contract = this.getContractWithSigner(signer);
+      if (!contract) {
+        return {
+          success: false,
+          error: 'Contract not initialized',
+          skipped: true
+        };
+      }
       
       const tx = await contract.recordLogisticsDispatch(
         cropHash,
@@ -248,10 +291,11 @@ class BlockchainService {
         txHash: tx.hash
       };
     } catch (error) {
-      console.error('❌ Record logistics dispatch error:', error);
+      console.warn('⚠️ Blockchain logistics dispatch failed (non-critical):', error.message);
       return {
         success: false,
-        error: error.message
+        error: error.message,
+        skipped: true
       };
     }
   }
@@ -262,6 +306,13 @@ class BlockchainService {
   async recordLogisticsReceive(cropHash, signer) {
     try {
       const contract = this.getContractWithSigner(signer);
+      if (!contract) {
+        return {
+          success: false,
+          error: 'Contract not initialized',
+          skipped: true
+        };
+      }
       
       const tx = await contract.recordLogisticsReceive(cropHash);
       await tx.wait();
@@ -271,10 +322,11 @@ class BlockchainService {
         txHash: tx.hash
       };
     } catch (error) {
-      console.error('❌ Record logistics receive error:', error);
+      console.warn('⚠️ Blockchain logistics receive failed (non-critical):', error.message);
       return {
         success: false,
-        error: error.message
+        error: error.message,
+        skipped: true
       };
     }
   }
@@ -285,6 +337,13 @@ class BlockchainService {
   async recordProcessing(cropHash, signer) {
     try {
       const contract = this.getContractWithSigner(signer);
+      if (!contract) {
+        return {
+          success: false,
+          error: 'Contract not initialized',
+          skipped: true
+        };
+      }
       
       const tx = await contract.recordProcessing(cropHash);
       await tx.wait();
@@ -294,10 +353,11 @@ class BlockchainService {
         txHash: tx.hash
       };
     } catch (error) {
-      console.error('❌ Record processing error:', error);
+      console.warn('⚠️ Blockchain processing record failed (non-critical):', error.message);
       return {
         success: false,
-        error: error.message
+        error: error.message,
+        skipped: true
       };
     }
   }
@@ -308,6 +368,13 @@ class BlockchainService {
   async listCrop(cropHash, price, badgeId, certificateCID, signer) {
     try {
       const contract = this.getContractWithSigner(signer);
+      if (!contract) {
+        return {
+          success: false,
+          error: 'Contract not initialized',
+          skipped: true
+        };
+      }
       
       const tx = await contract.listCrop(
         cropHash,
@@ -322,10 +389,11 @@ class BlockchainService {
         txHash: tx.hash
       };
     } catch (error) {
-      console.error('❌ List crop error:', error);
+      console.warn('⚠️ Blockchain list crop failed (non-critical):', error.message);
       return {
         success: false,
-        error: error.message
+        error: error.message,
+        skipped: true
       };
     }
   }
@@ -336,6 +404,13 @@ class BlockchainService {
   async buyCrop(cropHash, price, signer) {
     try {
       const contract = this.getContractWithSigner(signer);
+      if (!contract) {
+        return {
+          success: false,
+          error: 'Contract not initialized',
+          skipped: true
+        };
+      }
       
       const tx = await contract.buyCrop(cropHash, price);
       await tx.wait();
@@ -345,10 +420,11 @@ class BlockchainService {
         txHash: tx.hash
       };
     } catch (error) {
-      console.error('❌ Buy crop error:', error);
+      console.warn('⚠️ Blockchain buy crop failed (non-critical):', error.message);
       return {
         success: false,
-        error: error.message
+        error: error.message,
+        skipped: true
       };
     }
   }
@@ -359,7 +435,12 @@ class BlockchainService {
   async getCrop(cropHash) {
     try {
       if (!this.contract) {
-        throw new Error('Contract not initialized');
+        console.warn('⚠️ Contract not initialized. Cannot fetch crop from blockchain.');
+        return {
+          success: false,
+          error: 'Contract not initialized',
+          skipped: true
+        };
       }
 
       const crop = await this.contract.getCrop(cropHash);
@@ -376,10 +457,11 @@ class BlockchainService {
         }
       };
     } catch (error) {
-      console.error('❌ Get crop error:', error);
+      console.warn('⚠️ Get crop from blockchain failed (non-critical):', error.message);
       return {
         success: false,
-        error: error.message
+        error: error.message,
+        skipped: true
       };
     }
   }
@@ -390,11 +472,11 @@ class BlockchainService {
   async isFarmerVerified(farmerAddress) {
     try {
       if (!this.contract) {
-        return false;
+        return false; // Return false if contract not initialized (non-blocking)
       }
       return await this.contract.isFarmerVerified(farmerAddress);
     } catch (error) {
-      console.error('❌ Check farmer verification error:', error);
+      console.warn('⚠️ Check farmer verification failed (non-critical):', error.message);
       return false;
     }
   }
@@ -405,11 +487,11 @@ class BlockchainService {
   async isDistributorVerified(distributorAddress) {
     try {
       if (!this.contract) {
-        return false;
+        return false; // Return false if contract not initialized (non-blocking)
       }
       return await this.contract.isDistributorVerified(distributorAddress);
     } catch (error) {
-      console.error('❌ Check distributor verification error:', error);
+      console.warn('⚠️ Check distributor verification failed (non-critical):', error.message);
       return false;
     }
   }
@@ -420,11 +502,11 @@ class BlockchainService {
   async isRetailerVerified(retailerAddress) {
     try {
       if (!this.contract) {
-        return false;
+        return false; // Return false if contract not initialized (non-blocking)
       }
       return await this.contract.isRetailerVerified(retailerAddress);
     } catch (error) {
-      console.error('❌ Check retailer verification error:', error);
+      console.warn('⚠️ Check retailer verification failed (non-critical):', error.message);
       return false;
     }
   }

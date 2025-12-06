@@ -1,5 +1,6 @@
 import IPFSService from './ipfs.js';
-import { CropBatch, Farmer, Distributor, Retailer, PriceTrace } from '../models/index.js';
+import EventLedgerService from './eventLedger.js';
+import { CropBatch, Farmer, Distributor, Retailer, PriceTrace, EventLedger } from '../models/index.js';
 
 /**
  * Certificate Service for generating and managing crop certificates
@@ -107,6 +108,24 @@ class CertificateService {
         issuedBy: 'AgriDirect',
         verificationUrl: `${process.env.FRONTEND_URL || 'http://localhost:5000'}/api/public/crop/${cropBatch.cropId}`
       };
+
+      // Get all event blocks for this product
+      const eventBlocks = await EventLedger.find({
+        $or: [
+          { productId: cropBatch.cropId },
+          { cropBatchId: cropBatch._id }
+        ]
+      }).sort({ timestamp: 1 });
+
+      // Add event chain to certificate
+      certificateData.eventChain = eventBlocks.map(block => ({
+        eventType: block.eventType,
+        timestamp: block.timestamp,
+        actorRole: block.actorRole,
+        cid: block.cid,
+        previousHash: block.previousHash,
+        currentHash: block.currentHash
+      }));
 
       // Pin certificate to IPFS
       const ipfsResult = await IPFSService.uploadJSON(certificateData);

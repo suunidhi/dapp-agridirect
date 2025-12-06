@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Add Logistics Details - AgriDirect</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f6fff6;
+      margin: 0;
+      padding-bottom: 180px;
+    }
+    nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #5D8736;
+      padding: 15px 30px;
+      font-size: larger;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+    }
+    .logo video {
+      width: 50px;
+      height: 50px;
+      margin-right: 10px;
+      border-radius: 5px;
+    }
+    .logo-text {
+      font-size: 24px;
+      font-weight: bold;
+      color: #ffffff;
+    }
+    nav ul {
+      list-style: none;
+      display: flex;
+    }
+    nav ul li {
+      margin: 0 15px;
+      padding: 7px;
+    }
+    nav ul li a {
+      text-decoration: none;
+      color: #ffffff;
+      font-weight: bold;
+    }
+    nav ul li a:hover {
+      color: #F4FFC3;
+    }
+    .container {
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 30px;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+    h2 {
+      color: #2d6a4f;
+      margin-bottom: 30px;
+      text-align: center;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      font-weight: bold;
+      color: #2d6a4f;
+      margin-bottom: 8px;
+      display: block;
+    }
+    .form-control {
+      border: 2px solid #5D8736;
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .form-control:focus {
+      border-color: #2d6a4f;
+      box-shadow: 0 0 0 0.2rem rgba(45, 106, 79, 0.25);
+    }
+    .btn-submit {
+      background: #5D8736;
+      color: white;
+      padding: 12px 30px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: bold;
+      width: 100%;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    .btn-submit:hover {
+      background: #2d6a4f;
+    }
+    footer {
+      background: white;
+      color: #809D3C;
+      padding: 30px 20px;
+      text-align: center;
+      border-top: 2px solid #5D8736;
+      position: fixed;
+      bottom: 0;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="logo">
+      <video autoplay loop muted>
+        <source src="image/agridirect.mp4" type="video/mp4">
+      </video>
+      <span class="logo-text">AgriDirect</span>
+    </div>
+    <ul>
+      <li><a href="distributor_dashboard.html">DASHBOARD</a></li>
+      <li><a href="distributor_orders.html">ORDERS</a></li>
+      <li><a href="role.html">LOGOUT</a></li>
+    </ul>
+  </nav>
+
+  <div class="container">
+    <h2>Add Logistics Details</h2>
+    <form id="logisticsForm">
+      <div class="form-group">
+        <label>Logistics Service Name *</label>
+        <input type="text" class="form-control" id="logisticsName" required>
+      </div>
+      <div class="form-group">
+        <label>Vehicle/Lorry Number *</label>
+        <input type="text" class="form-control" id="vehicleNumber" required>
+      </div>
+      <div class="form-group">
+        <label>Driver Contact Number *</label>
+        <input type="tel" class="form-control" id="driverContact" required>
+      </div>
+      <div class="form-group">
+        <label>Dispatch Time *</label>
+        <input type="datetime-local" class="form-control" id="dispatchTime" required>
+      </div>
+      <div class="form-group">
+        <label>Cold Storage Requirement</label>
+        <select class="form-control" id="coldStorageCharge">
+          <option value="0">No Cold Storage</option>
+          <option value="500">Basic Cold Storage (₹500)</option>
+          <option value="1000">Premium Cold Storage (₹1000)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Delivery Fee (₹) *</label>
+        <input type="number" class="form-control" id="deliveryFee" min="0" required>
+      </div>
+      <div class="form-group">
+        <label>Final Price with Transportation (₹) *</label>
+        <input type="number" class="form-control" id="finalPrice" min="0" required>
+      </div>
+      <button type="submit" class="btn-submit">Save Logistics & Accept Order</button>
+    </form>
+  </div>
+
+  <footer>
+    <div class="footer-container">
+      <div class="footer-logo">
+        <video autoplay loop muted playsinline>
+          <source src="image/logo.mp4" type="video/mp4">
+        </video>
+        <span>AgriDirect</span>
+      </div>
+      <p>&copy; 2025 AgriDirect. All Rights Reserved.</p>
+    </div>
+  </footer>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const orderId = urlParams.get('orderId');
+    const distributorId = localStorage.getItem('distributorId');
+
+    if (!distributorId) {
+      alert('Please login as distributor first!');
+      window.location.href = 'distributor_login.html';
+    }
+
+    document.getElementById('logisticsForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const logisticsData = {
+        distributorId,
+        logisticsName: document.getElementById('logisticsName').value,
+        vehicleNumber: document.getElementById('vehicleNumber').value,
+        driverContact: document.getElementById('driverContact').value,
+        dispatchTime: document.getElementById('dispatchTime').value,
+        coldStorageCharge: document.getElementById('coldStorageCharge').value,
+        deliveryFee: document.getElementById('deliveryFee').value,
+        finalPrice: document.getElementById('finalPrice').value
+      };
+
+      try {
+        const res = await fetch(`http://localhost:5000/api/distributor/orders/${orderId}/add-logistics`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(logisticsData)
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          alert('Logistics details added successfully! Order accepted.');
+          window.location.href = 'distributor_orders.html';
+        } else {
+          alert('Error: ' + (data.message || 'Failed to add logistics'));
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        alert('Error adding logistics details');
+      }
+    });
+  </script>
+</body>
+</html>
+

@@ -74,6 +74,20 @@ app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 // ✅ NEW — Make uploads/qrs folder public too
 app.use("/uploads/qrs", express.static(path.join(process.cwd(), "uploads/qrs")));
 
+// ✅ IPFS Proxy Route - Serve IPFS content via gateway
+app.get("/ipfs/:cid", async (req, res) => {
+  try {
+    const { cid } = req.params;
+    const ipfsUrl = IPFSService.getIPFSUrl(cid);
+    
+    // Redirect to IPFS gateway
+    res.redirect(ipfsUrl.gatewayUrl);
+  } catch (error) {
+    console.error("❌ IPFS proxy error:", error);
+    res.status(404).send("IPFS content not found");
+  }
+});
+
 // ------------------ DB CONNECTION ------------------
 mongoose.connect("mongodb://127.0.0.1:27017/agriDirect")
   .then(() => console.log("✅ MongoDB Connected"))
@@ -801,21 +815,85 @@ app.post("/api/farmer/crops/:cropId/select-distributor", async (req, res) => {
 // Legacy route
 app.post("/distributor/newRequest", async (req, res) => {
   try {
-    const { farmerId, distributorId, cropBatchId } = req.body;
+    const { farmerId, distributorId, cropBatchId, productId } = req.body;
 
-    if (!farmerId || !distributorId || !cropBatchId) {
+    if (!farmerId || !distributorId || (!cropBatchId && !productId)) {
       return res.json({ success: false, message: "Missing data" });
     }
 
-    const cropBatch = await CropBatch.findById(cropBatchId);
+    // Try to load cropBatch by id first
+    let cropBatch = null;
+    if (cropBatchId) {
+      cropBatch = await CropBatch.findById(cropBatchId);
+    }
+
+    // If cropBatch not found but legacy productId provided, create a CropBatch and PRODUCT_CREATED event
+    if (!cropBatch && productId) {
+      try {
+        const legacyProduct = await Product.findById(productId).lean();
+        if (!legacyProduct) {
+          return res.json({ success: false, message: 'Product not found' });
+        }
+
+        // Generate cropId and build cropBatch doc
+        const cropId = CertificateService.generateCropId(legacyProduct.farmerId?.toString() || farmerId);
+        const imageCID = legacyProduct.imageCID || (legacyProduct.image ? null : null);
+
+        const newCrop = new CropBatch({
+          cropId,
+          farmerId: legacyProduct.farmerId || farmerId,
+          productName: legacyProduct.name || legacyProduct.productName || 'Unnamed',
+          category: legacyProduct.category || 'others',
+          images: legacyProduct.imageCID ? [legacyProduct.imageCID] : (legacyProduct.images || []),
+          imageCID: imageCID || (legacyProduct.imageCID || null) || (legacyProduct.images && legacyProduct.images[0]) || null,
+          quantity: legacyProduct.quantity || 0,
+          unit: 'kg',
+          pricePerUnitFarmer: legacyProduct.price || legacyProduct.pricePerUnitFarmer || 0,
+          harvestDate: legacyProduct.harvestDate || new Date(),
+          status: 'created',
+          history: [{ type: 'batchCreated', actorId: legacyProduct.farmerId || farmerId, actorRole: 'Farmer', timestamp: new Date(), metadata: { productName: legacyProduct.name || legacyProduct.productName } }]
+        });
+
+        await newCrop.save();
+
+        // Create PRODUCT_CREATED event block
+        const ev = await EventLedgerService.createEventBlock({
+          productId: cropId,
+          cropBatchId: newCrop._id,
+          eventType: 'PRODUCT_CREATED',
+          eventData: {
+            productName: newCrop.productName,
+            quantity: newCrop.quantity,
+            pricePerUnitFarmer: newCrop.pricePerUnitFarmer,
+            imageCIDs: newCrop.imageCID ? [newCrop.imageCID] : (newCrop.images || [])
+          },
+          actorId: newCrop.farmerId,
+          actorRole: 'Farmer'
+        });
+
+        if (ev.success) {
+          newCrop.latestBlockHash = ev.blockHash;
+          await newCrop.save();
+        }
+
+        // Link legacy product -> cropBatch if possible
+        try { await Product.findByIdAndUpdate(productId, { cropBatchId: newCrop._id }); } catch (e) { /* ignore */ }
+
+        cropBatch = newCrop;
+      } catch (err) {
+        console.error('Error creating cropBatch from legacy product:', err);
+        return res.json({ success: false, message: 'Error creating crop batch' });
+      }
+    }
+
     if (!cropBatch) {
       return res.json({ success: false, message: "Crop batch not found" });
     }
 
-    const newReq = new DistributorRequest({ 
-      farmerId, 
-      distributorId, 
-      cropBatchId: cropBatch._id 
+    const newReq = new DistributorRequest({
+      farmerId,
+      distributorId,
+      cropBatchId: cropBatch._id
     });
     await newReq.save();
 
@@ -874,11 +952,109 @@ app.get("/api/distributor/notifications", async (req, res) => {
   }
 });
 
-// Legacy route
+// ✅ Get pending distributor requests
+// ✅ Get pending distributor requests
 app.get("/distributor/getRequests/:id", async (req, res) => {
-  req.query.distributorId = req.params.id;
-  req.url = "/api/distributor/notifications";
-  app._router.handle(req, res);
+  try {
+    const { id } = req.params;  // distributorId (string from URL)
+    
+    // Convert string ID to MongoDB ObjectId
+    let distributorObjectId;
+    try {
+      distributorObjectId = new mongoose.Types.ObjectId(id);
+    } catch (e) {
+      console.log("[DEBUG] Invalid distributorId format:", id);
+      return res.json({ success: false, message: "Invalid distributor ID format", requests: [] });
+    }
+    
+    console.log("[DEBUG] Querying pending requests for distributorId:", distributorObjectId.toString());
+    
+    // Fetch pending distributor requests
+    const requests = await DistributorRequest.find({
+      distributorId: distributorObjectId,
+      status: "pending"
+    })
+      .populate("farmerId", "fullName farmName location email mobileNumber")
+      .populate("cropBatchId")   // ✅ MATCHES YOUR SCHEMA
+      .sort({ createdAt: -1 });
+    
+    console.log("[DEBUG] Found", requests.length, "pending requests");
+
+    // Transform data
+    const transformedRequests = await Promise.all(
+      requests.map(async (r) => {
+        const farmer = r.farmerId;
+        const crop = r.cropBatchId;   // ✅ MATCHES YOUR SCHEMA
+
+        // Build image URL
+        let image = null;
+        if (crop) {
+          if (crop.imageCID && crop.imageCID !== "N/A") {
+            image = `${req.protocol}://${req.get("host")}/ipfs/${crop.imageCID}`;
+          } else if (Array.isArray(crop.images) && crop.images.length > 0) {
+            image = `${req.protocol}://${req.get("host")}/uploads/${crop.images[0]}`;
+          }
+        }
+
+        // Latest ledger event
+        let latestEvent = null;
+        try {
+          if (crop && crop._id) {
+            latestEvent = await EventLedger.findOne({ cropBatchId: crop._id })
+              .sort({ timestamp: -1 })
+              .lean();
+          }
+        } catch (e) {
+          console.warn("Could not fetch latest event ledger", e.message);
+        }
+
+        return {
+          _id: r._id,
+          farmerId: {
+            _id: farmer?._id,
+            name: farmer?.fullName,
+            farmName: farmer?.farmName,
+            location: farmer?.location,
+            email: farmer?.email,
+            mobileNumber: farmer?.mobileNumber,
+          },
+          productId: {   // 🔥 Your frontend expects productId, so we pack cropBatch inside it
+            _id: crop?._id,
+            name: crop?.productName || crop?.name || null,
+            quantity: crop?.quantity || null,
+            price: crop?.pricePerUnitFarmer || crop?.price || null,
+            category: crop?.category || null,
+            cropId: crop?.cropId || null,
+            image,
+          },
+          eventLedger: latestEvent
+            ? {
+                _id: latestEvent._id,
+                eventType: latestEvent.eventType,
+                cid: latestEvent.cid,
+                previousHash: latestEvent.previousHash,
+                currentHash: latestEvent.currentHash,
+                timestamp: latestEvent.timestamp,
+                actorId: latestEvent.actorId,
+                actorRole: latestEvent.actorRole,
+              }
+            : null,
+          status: r.status,
+          createdAt: r.createdAt,
+        };
+      })
+    );
+
+    res.json({ success: true, requests: transformedRequests });
+  } catch (error) {
+    console.error("[ERROR] Error fetching requests:", error.message);
+    console.error(error.stack);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+      requests: []
+    });
+  }
 });
 
 // Accept distributor request
@@ -940,6 +1116,31 @@ app.post("/api/distributor/crops/:cropId/accept", async (req, res) => {
 
     await cropBatch.save();
 
+    // Create DISTRIBUTOR_ACCEPTED event block
+    const distributorAcceptedEvent = await EventLedgerService.createEventBlock({
+      productId: cropBatch.cropId,
+      cropBatchId: cropBatch._id,
+      eventType: "DISTRIBUTOR_ACCEPTED",
+      eventData: {
+        farmerId: cropBatch.farmerId.toString(),
+        distributorId: distributorId.toString(),
+        requestId: request._id.toString(),
+        acceptedAt: cropBatch.distributorAcceptedAt.toISOString()
+      },
+      actorId: distributorId,
+      actorRole: "Distributor"
+    });
+
+    if (distributorAcceptedEvent.success) {
+      cropBatch.latestBlockHash = distributorAcceptedEvent.blockHash;
+      await cropBatch.save();
+      console.log("✅ DISTRIBUTOR_ACCEPTED block created:");
+      console.log("   Event CID:", distributorAcceptedEvent.eventCID);
+      console.log("   Block Hash:", distributorAcceptedEvent.blockHash);
+    } else {
+      console.error("❌ Failed to create DISTRIBUTOR_ACCEPTED block:", distributorAcceptedEvent.error);
+    }
+
     // Optional: Record on blockchain
     if (cropBatch.farmerMetamaskAddress && cropBatch.blockchainCropHash) {
       try {
@@ -959,7 +1160,9 @@ app.post("/api/distributor/crops/:cropId/accept", async (req, res) => {
         cropId: cropBatch.cropId,
         status: cropBatch.status,
         distributorAccepted: cropBatch.distributorAccepted
-      }
+      },
+      blockCreated: distributorAcceptedEvent.success ? true : false,
+      eventCID: distributorAcceptedEvent.eventCID || null
     });
   } catch (error) {
     console.error("❌ Accept request error:", error);
@@ -971,26 +1174,77 @@ app.post("/api/distributor/crops/:cropId/accept", async (req, res) => {
   }
 });
 
-// Legacy route
+// Accept distributor request (direct handler)
 app.post("/distributor/acceptRequest/:id", async (req, res) => {
   try {
+    console.log("[DEBUG] Accept request initiated for ID:", req.params.id);
+    
     const request = await DistributorRequest.findById(req.params.id);
     if (!request) {
+      console.log("[DEBUG] DistributorRequest not found for ID:", req.params.id);
       return res.json({ success: false, message: "Request not found" });
     }
 
+    console.log("[DEBUG] Found request, cropBatchId:", request.cropBatchId);
+    
     const cropBatch = await CropBatch.findById(request.cropBatchId);
     if (!cropBatch) {
+      console.log("[DEBUG] CropBatch not found for ID:", request.cropBatchId);
       return res.json({ success: false, message: "Crop batch not found" });
     }
 
-    req.params.cropId = cropBatch.cropId;
-    req.body.distributorId = request.distributorId.toString();
-    req.url = `/api/distributor/crops/${cropBatch.cropId}/accept`;
-    app._router.handle(req, res);
+    console.log("[DEBUG] Found crop batch, updating status...");
+    
+    // Update request status to accepted
+    request.status = "accepted";
+    request.respondedAt = new Date();
+    await request.save();
+
+    // Update crop batch
+    cropBatch.distributorAccepted = true;
+    cropBatch.distributorAcceptedAt = new Date();
+    cropBatch.selectedDistributorId = request.distributorId;
+    cropBatch.status = "assignedToDistributor";
+    cropBatch.history.push({
+      type: "distributorAccepted",
+      actorId: request.distributorId,
+      actorRole: "Distributor",
+      timestamp: new Date(),
+      metadata: { requestId: request._id.toString() }
+    });
+    await cropBatch.save();
+
+    console.log("[DEBUG] Creating EventLedger block...");
+    
+    // Create DISTRIBUTOR_ACCEPTED event block
+    const distributorAcceptedEvent = await EventLedgerService.createEventBlock({
+      productId: cropBatch.cropId,
+      cropBatchId: cropBatch._id,
+      eventType: "DISTRIBUTOR_ACCEPTED",
+      eventData: {
+        farmerId: cropBatch.farmerId.toString(),
+        distributorId: request.distributorId.toString(),
+        requestId: request._id.toString(),
+        acceptedAt: cropBatch.distributorAcceptedAt.toISOString()
+      },
+      actorId: request.distributorId,
+      actorRole: "Distributor"
+    });
+
+    console.log("[DEBUG] EventLedger result:", distributorAcceptedEvent);
+
+    if (distributorAcceptedEvent.success) {
+      cropBatch.latestBlockHash = distributorAcceptedEvent.blockHash;
+      await cropBatch.save();
+      console.log("[DEBUG] Saved blockHash to cropBatch");
+    }
+
+    console.log("[DEBUG] Accept request successful");
+    res.json({ success: true, message: "Request accepted successfully" });
   } catch (err) {
-    console.log("Error accepting request:", err);
-    res.json({ success: false, message: "Error accepting request" });
+    console.error("❌ Error accepting request:", err.message);
+    console.error("Stack:", err.stack);
+    res.json({ success: false, message: "Error accepting request", error: err.message });
   }
 });
 
@@ -1071,7 +1325,7 @@ app.post("/api/distributor/crops/:cropId/reject", async (req, res) => {
   }
 });
 
-// Legacy route
+// Reject distributor request (direct handler)
 app.post("/distributor/rejectRequest/:id", async (req, res) => {
   try {
     const request = await DistributorRequest.findById(req.params.id);
@@ -1082,11 +1336,44 @@ app.post("/distributor/rejectRequest/:id", async (req, res) => {
       return res.json({ success: false, message: "Crop batch not found" });
     }
 
-    req.params.cropId = cropBatch.cropId;
-    req.body.distributorId = request.distributorId.toString();
-    req.body.reason = req.body.reason || "No reason provided";
-    req.url = `/api/distributor/crops/${cropBatch.cropId}/reject`;
-    app._router.handle(req, res);
+    // Update request status to rejected
+    request.status = "rejected";
+    request.respondedAt = new Date();
+    request.responseNotes = req.body.reason || "No reason provided";
+    await request.save();
+
+    // Add ledger entry to crop batch
+    cropBatch.history.push({
+      type: "distributorRejected",
+      actorId: request.distributorId,
+      actorRole: "Distributor",
+      timestamp: new Date(),
+      metadata: { requestId: request._id.toString(), reason: request.responseNotes }
+    });
+    await cropBatch.save();
+
+    // Create DISTRIBUTOR_REJECTED event block
+    const distributorRejectedEvent = await EventLedgerService.createEventBlock({
+      productId: cropBatch.cropId,
+      cropBatchId: cropBatch._id,
+      eventType: "DISTRIBUTOR_REJECTED",
+      eventData: {
+        farmerId: cropBatch.farmerId.toString(),
+        distributorId: request.distributorId.toString(),
+        requestId: request._id.toString(),
+        reason: request.responseNotes,
+        rejectedAt: request.respondedAt.toISOString()
+      },
+      actorId: request.distributorId,
+      actorRole: "Distributor"
+    });
+
+    if (distributorRejectedEvent.success) {
+      cropBatch.latestBlockHash = distributorRejectedEvent.blockHash;
+      await cropBatch.save();
+    }
+
+    res.json({ success: true, message: "Request rejected successfully" });
   } catch (err) {
     console.log(err);
     res.json({ success: false, message: "Error rejecting request" });
@@ -1361,21 +1648,78 @@ app.post("/api/distributor/crops/:cropId/receive", upload.fields([
 // Login
 app.post("/farmer/login", async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const farmer = await Farmer.findOne({ email });
-    if (!farmer) {
-      return res.json({ status: "error", message: "Invalid email or password" });
+    let { email, password } = req.body;
+
+    // Validate input
+    if (!email || !password) {
+      return res.json({ 
+        status: "error", 
+        message: "Email and password are required" 
+      });
     }
+
+    // Normalize email (trim whitespace and convert to lowercase)
+    email = email.trim().toLowerCase();
+    password = password.trim();
+
+    console.log("🔍 Farmer login attempt for email:", email);
+
+    // Find farmer (case-insensitive email search)
+    const farmer = await Farmer.findOne({ 
+      $or: [
+        { email: email },
+        { email: { $regex: new RegExp(`^${email}$`, 'i') } }
+      ]
+    });
+    
+    if (!farmer) {
+      console.log("❌ Farmer not found for email:", email);
+      // Also try to find by exact email (case-sensitive) for debugging
+      const exactMatch = await Farmer.findOne({ email: req.body.email.trim() });
+      if (exactMatch) {
+        console.log("⚠️ Found farmer with exact case match:", exactMatch.email);
+      }
+      return res.json({ 
+        status: "error", 
+        message: "Invalid email or password" 
+      });
+    }
+
+    console.log("✅ Farmer found:", farmer._id.toString(), "Email:", farmer.email);
 
     // Use passwordHash from enhanced model (fallback to password for legacy)
     const passwordField = farmer.passwordHash || farmer.password;
     if (!passwordField) {
-      return res.json({ status: "error", message: "Account password not set. Please contact support." });
+      console.log("❌ No password field found for farmer:", farmer._id);
+      console.log("   Available fields:", Object.keys(farmer.toObject()));
+      return res.json({ 
+        status: "error", 
+        message: "Account password not set. Please contact support." 
+      });
     }
+
+    // Compare password
+    console.log("🔐 Comparing password...");
+    console.log("   Password hash length:", passwordField.length);
+    console.log("   Password hash starts with:", passwordField.substring(0, 10));
+    
     const isMatch = await bcrypt.compare(password, passwordField);
+    console.log("🔐 Password match result:", isMatch);
+
     if (!isMatch) {
-      return res.json({ status: "error", message: "Invalid email or password" });
+      console.log("❌ Password mismatch for farmer:", farmer._id);
+      // Try comparing with original password field if different
+      if (farmer.password && farmer.password !== passwordField) {
+        const altMatch = await bcrypt.compare(password, farmer.password);
+        console.log("   Alternative password field match:", altMatch);
+      }
+      return res.json({ 
+        status: "error", 
+        message: "Invalid email or password" 
+      });
     }
+
+    console.log("✅ Login successful for farmer:", farmer._id);
 
     res.json({
       status: "success",
@@ -1386,7 +1730,12 @@ app.post("/farmer/login", async (req, res) => {
 
   } catch (error) {
     console.error("❌ Farmer login error:", error);
-    res.json({ status: "error", message: "Server error" });
+    console.error("❌ Error stack:", error.stack);
+    res.status(500).json({ 
+      status: "error", 
+      message: "Server error: " + error.message,
+      error: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
@@ -1774,8 +2123,9 @@ app.post(
       if (!fs.existsSync(qrDir)) fs.mkdirSync(qrDir, { recursive: true });
 
       // Get IPFS gateway URL for the image
-      const imageUrl = IPFSService.getIPFSUrl(imageCID);
-      const labReportUrl = labReportCID ? IPFSService.getIPFSUrl(labReportCID) : null;
+      // ✅ FIXED: Store local proxy URL instead of direct IPFS
+      const imageUrl = `/ipfs/${imageCID}`;
+      const labReportUrl = labReportCID ? `/ipfs/${labReportCID}` : null;
 
       const product = new Product({
         farmerId,
@@ -1797,6 +2147,66 @@ app.post(
       });
 
       await product.save();
+
+      // --- Create CropBatch + PRODUCT_CREATED event for immutable ledger ---
+      try {
+        const cropId = CertificateService.generateCropId(farmerId);
+
+        const cropBatch = new CropBatch({
+          cropId,
+          farmerId,
+          farmerMetamaskAddress: farmer.metamaskAddress,
+          productName: name,
+          category,
+          images: [imageCID],
+          quantity: numericQuantity,
+          unit: 'kg',
+          pricePerUnitFarmer: numericPrice,
+          harvestDate: harvestDate ? new Date(harvestDate) : null,
+          status: 'created'
+        });
+
+        // Add initial history
+        cropBatch.history.push({
+          type: 'batchCreated',
+          actorId: farmerId,
+          actorRole: 'Farmer',
+          timestamp: new Date(),
+          metadata: { productName: name, quantity: numericQuantity }
+        });
+
+        await cropBatch.save();
+
+        // Create PRODUCT_CREATED event block in EventLedger
+        const productCreatedEvent = await EventLedgerService.createEventBlock({
+          productId: cropId,
+          cropBatchId: cropBatch._id,
+          eventType: 'PRODUCT_CREATED',
+          eventData: {
+            productName: name,
+            category,
+            quantity: numericQuantity,
+            pricePerUnitFarmer: numericPrice,
+            harvestDate: harvestDate,
+            imageCIDs: [imageCID]
+          },
+          actorId: farmerId,
+          actorRole: 'Farmer'
+        });
+
+        if (productCreatedEvent.success) {
+          cropBatch.latestBlockHash = productCreatedEvent.blockHash;
+          await cropBatch.save();
+          // link cropBatch to legacy product
+          product.cropBatchId = cropBatch._id;
+          await product.save();
+          console.log('✅ PRODUCT_CREATED block created for legacy addProduct flow:', productCreatedEvent.blockHash);
+        } else {
+          console.error('❌ Failed to create PRODUCT_CREATED block (legacy addProduct):', productCreatedEvent.error);
+        }
+      } catch (e) {
+        console.error('❌ Error creating CropBatch from legacy addProduct route:', e.message);
+      }
 
       const serverUrl = "http://localhost:5000";
       const qrUrl = `${serverUrl}/product/${product._id}/view`;
@@ -2680,6 +3090,547 @@ app.post("/retailer/login", async (req, res) => {
   }
 });
 
+// ==================== RETAILER ORDER ROUTES ====================
+
+// Retailer places order (Buy Now from distributor marketplace)
+app.post("/retailer/order", async (req, res) => {
+  try {
+    const {
+      retailerId,
+      retailerName,
+      retailerEmail,
+      distributorId,
+      productId,
+      productName,
+      unitPrice,
+      quantity,
+      totalPrice,
+      paymentMethod,
+      address
+    } = req.body;
+
+    if (!retailerId || !distributorId || !productId || !productName || !quantity || !totalPrice) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields"
+      });
+    }
+
+    // Find distributor listing (could be MarketplaceProduct or DistributorListing)
+    let distributorListing = await DistributorListing.findOne({ 
+      distributorId,
+      _id: productId 
+    }).populate("cropBatchId");
+
+    
+    let cropBatch = null;
+    if (distributorListing && distributorListing.cropBatchId) {
+      cropBatch = distributorListing.cropBatchId;
+    } else {
+      // Try to find by productName
+      distributorListing = await DistributorListing.findOne({
+        distributorId,
+        productName
+      }).populate("cropBatchId");
+      if (distributorListing && distributorListing.cropBatchId) {
+        cropBatch = distributorListing.cropBatchId;
+      }
+    }
+
+    // Create retailer order
+    const retailerOrder = new RetailerOrder({
+      retailerId,
+      distributorId,
+      distributorListingId: distributorListing?._id,
+      cropBatchId: cropBatch?._id,
+      productName,
+      quantity: parseFloat(quantity),
+      unitPrice: parseFloat(unitPrice),
+      totalPrice: parseFloat(totalPrice),
+      paymentMethod: paymentMethod || "cod",
+      paymentStatus: "pending",
+      address,
+      deliveryStatus: "pending",
+      status: "pending"
+    });
+
+    await retailerOrder.save();
+
+    // Create RETAILER_REQUESTED_TO_BUY event block
+    if (cropBatch) {
+      const requestEvent = await EventLedgerService.createEventBlock({
+        productId: cropBatch.cropId,
+        cropBatchId: cropBatch._id,
+        eventType: "RETAILER_REQUESTED_TO_BUY",
+        eventData: {
+          retailerId: retailerId.toString(),
+          distributorId: distributorId.toString(),
+          distributorListingId: distributorListing?._id?.toString(),
+          productName,
+          quantity: parseFloat(quantity),
+          unitPrice: parseFloat(unitPrice),
+          totalPrice: parseFloat(totalPrice),
+          orderId: retailerOrder._id.toString(),
+          requestedAt: new Date().toISOString()
+        },
+        actorId: retailerId,
+        actorRole: "Retailer"
+      });
+
+      if (requestEvent.success) {
+        cropBatch.latestBlockHash = requestEvent.blockHash;
+        await cropBatch.save();
+        console.log("✅ RETAILER_REQUESTED_TO_BUY block created");
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "Order placed successfully",
+      order: {
+        _id: retailerOrder._id,
+        productName: retailerOrder.productName,
+        quantity: retailerOrder.quantity,
+        totalPrice: retailerOrder.totalPrice,
+        status: retailerOrder.status
+      }
+    });
+  } catch (error) {
+    console.error("❌ Retailer order error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error placing order",
+      error: error.message
+    });
+  }
+});
+
+// Get retailer orders
+app.get("/retailer/orders/:retailerId", async (req, res) => {
+  try {
+    const { retailerId } = req.params;
+    const orders = await RetailerOrder.find({ retailerId })
+      .populate("distributorId", "fullName companyName")
+      .populate("distributorListingId", "productName badgeId")
+      .sort({ orderDate: -1 });
+
+    res.json({
+      success: true,
+      orders: orders.map(order => ({
+        _id: order._id,
+        productName: order.productName,
+        quantity: order.quantity,
+        unitPrice: order.unitPrice,
+        totalPrice: order.totalPrice,
+        paymentStatus: order.paymentStatus,
+        deliveryStatus: order.deliveryStatus,
+        status: order.status,
+        date: order.orderDate,
+        distributorId: order.distributorId ? {
+          _id: order.distributorId._id,
+          companyName: order.distributorId.companyName
+        } : null
+      }))
+    });
+  } catch (error) {
+    console.error("❌ Get retailer orders error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching orders"
+    });
+  }
+});
+
+// Get distributor orders (requests from retailers)
+app.get("/distributor/orders/:distributorId", async (req, res) => {
+  try {
+    const { distributorId } = req.params;
+    const orders = await RetailerOrder.find({ distributorId, status: "pending" })
+      .populate("retailerId", "fullName shopName")
+      .populate("distributorListingId", "productName badgeId")
+      .sort({ orderDate: -1 });
+
+    res.json({
+      success: true,
+      orders: orders.map(order => ({
+        _id: order._id,
+        productName: order.productName,
+        quantity: order.quantity,
+        unitPrice: order.unitPrice,
+        totalPrice: order.totalPrice,
+        retailerId: order.retailerId ? {
+          _id: order.retailerId._id,
+          shopName: order.retailerId.shopName,
+          fullName: order.retailerId.fullName
+        } : null,
+        orderDate: order.orderDate,
+        address: order.address
+      }))
+    });
+  } catch (error) {
+    console.error("❌ Get distributor orders error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching orders"
+    });
+  }
+});
+
+// Distributor adds logistics and accepts retailer request
+app.post("/api/distributor/orders/:orderId/add-logistics", async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const {
+      distributorId,
+      logisticsName,
+      vehicleNumber,
+      driverContact,
+      dispatchTime,
+      coldStorageCharge,
+      deliveryFee,
+      finalPrice
+    } = req.body;
+
+    if (!distributorId || !logisticsName || !vehicleNumber || !driverContact) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required logistics fields"
+      });
+    }
+
+    const retailerOrder = await RetailerOrder.findById(orderId)
+      .populate("cropBatchId");
+
+    if (!retailerOrder) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found"
+      });
+    }
+
+    if (retailerOrder.distributorId.toString() !== distributorId) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized"
+      });
+    }
+
+    // Update order with logistics
+    retailerOrder.deliveryStatus = "inTransit";
+    retailerOrder.status = "completed";
+    if (finalPrice) {
+      retailerOrder.totalPrice = parseFloat(finalPrice);
+    }
+    await retailerOrder.save();
+
+    const cropBatch = retailerOrder.cropBatchId;
+    if (cropBatch) {
+      // Create DISTRIBUTOR_LOGISTICS_ADDED event block
+      const logisticsEvent = await EventLedgerService.createEventBlock({
+        productId: cropBatch.cropId,
+        cropBatchId: cropBatch._id,
+        eventType: "DISTRIBUTOR_LOGISTICS_ADDED",
+        eventData: {
+          distributorId: distributorId.toString(),
+          retailerId: retailerOrder.retailerId.toString(),
+          orderId: orderId.toString(),
+          logistics: {
+            logisticsName,
+            vehicleNumber,
+            driverContact,
+            dispatchTime: dispatchTime ? new Date(dispatchTime).toISOString() : new Date().toISOString(),
+            coldStorageCharge: coldStorageCharge ? parseFloat(coldStorageCharge) : 0,
+            deliveryFee: deliveryFee ? parseFloat(deliveryFee) : 0,
+            finalPrice: finalPrice ? parseFloat(finalPrice) : retailerOrder.totalPrice
+          },
+          addedAt: new Date().toISOString()
+        },
+        actorId: distributorId,
+        actorRole: "Distributor"
+      });
+
+      if (logisticsEvent.success) {
+        cropBatch.latestBlockHash = logisticsEvent.blockHash;
+        await cropBatch.save();
+        console.log("✅ DISTRIBUTOR_LOGISTICS_ADDED block created");
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "Logistics added and order accepted",
+      order: {
+        _id: retailerOrder._id,
+        deliveryStatus: retailerOrder.deliveryStatus,
+        status: retailerOrder.status
+      }
+    });
+  } catch (error) {
+    console.error("❌ Add logistics error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error adding logistics",
+      error: error.message
+    });
+  }
+});
+
+// Retailer checkout (dummy payment)
+app.post("/api/retailer/checkout/:orderId", async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { retailerId, paymentMethod } = req.body;
+
+    const retailerOrder = await RetailerOrder.findById(orderId)
+      .populate("cropBatchId");
+
+    if (!retailerOrder) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found"
+      });
+    }
+
+    if (retailerOrder.retailerId.toString() !== retailerId) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized"
+      });
+    }
+
+    // Update payment status
+    retailerOrder.paymentStatus = "completed";
+    retailerOrder.paymentMethod = paymentMethod || "cod";
+    await retailerOrder.save();
+
+    const cropBatch = retailerOrder.cropBatchId;
+    if (cropBatch) {
+      // Create RETAILER_CHECKOUT_INITIATED event block
+      const checkoutEvent = await EventLedgerService.createEventBlock({
+        productId: cropBatch.cropId,
+        cropBatchId: cropBatch._id,
+        eventType: "RETAILER_CHECKOUT_INITIATED",
+        eventData: {
+          retailerId: retailerId.toString(),
+          distributorId: retailerOrder.distributorId.toString(),
+          orderId: orderId.toString(),
+          paymentMethod: paymentMethod || "cod",
+          totalPrice: retailerOrder.totalPrice,
+          checkoutAt: new Date().toISOString()
+        },
+        actorId: retailerId,
+        actorRole: "Retailer"
+      });
+
+      if (checkoutEvent.success) {
+        cropBatch.latestBlockHash = checkoutEvent.blockHash;
+        await cropBatch.save();
+        console.log("✅ RETAILER_CHECKOUT_INITIATED block created");
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "Checkout completed",
+      order: {
+        _id: retailerOrder._id,
+        paymentStatus: retailerOrder.paymentStatus
+      }
+    });
+  } catch (error) {
+    console.error("❌ Retailer checkout error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error processing checkout",
+      error: error.message
+    });
+  }
+});
+
+// Retailer accepts delivery (final inspection)
+const uploadRetailerInspection = upload.fields([
+  { name: "finalProductImage", maxCount: 1 }
+]);
+
+app.post("/api/retailer/orders/:orderId/accept-delivery", uploadRetailerInspection, async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const {
+      retailerId,
+      finalQualityNotes,
+      weightDifference,
+      arrivalDefects,
+      spoilagePercentage,
+      moistureMismatch,
+      packagingCondition,
+      finalPrice
+    } = req.body;
+
+    if (!retailerId) {
+      return res.status(400).json({
+        success: false,
+        message: "Retailer ID is required"
+      });
+    }
+
+    const retailerOrder = await RetailerOrder.findById(orderId)
+      .populate("cropBatchId");
+
+    if (!retailerOrder) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found"
+      });
+    }
+
+    if (retailerOrder.retailerId.toString() !== retailerId) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized"
+      });
+    }
+
+    // Upload final product image to IPFS
+    let finalImageCID = null;
+    if (req.files?.finalProductImage?.[0]) {
+      const imageFile = req.files.finalProductImage[0];
+      const ipfsResult = await IPFSService.uploadFile(imageFile.path);
+      if (ipfsResult.success) {
+        finalImageCID = ipfsResult.cid;
+      }
+      try { fs.unlinkSync(imageFile.path); } catch (e) {}
+    }
+
+    // Update order
+    retailerOrder.deliveryStatus = "delivered";
+    retailerOrder.receivedTimestamp = new Date();
+    retailerOrder.receivedQuality = finalQualityNotes;
+    retailerOrder.receivedQuantity = weightDifference ? parseFloat(weightDifference) : retailerOrder.quantity;
+    retailerOrder.retailerPrice = finalPrice ? parseFloat(finalPrice) : retailerOrder.totalPrice;
+    retailerOrder.status = "completed";
+    await retailerOrder.save();
+
+    const cropBatch = retailerOrder.cropBatchId;
+    if (cropBatch) {
+      // Create RETAILER_ACCEPTED_DELIVERY event block
+      const acceptEvent = await EventLedgerService.createEventBlock({
+        productId: cropBatch.cropId,
+        cropBatchId: cropBatch._id,
+        eventType: "RETAILER_ACCEPTED_DELIVERY",
+        eventData: {
+          retailerId: retailerId.toString(),
+          orderId: orderId.toString(),
+          inspection: {
+            finalQualityNotes,
+            weightDifference: weightDifference ? parseFloat(weightDifference) : undefined,
+            arrivalDefects,
+            spoilagePercentage: spoilagePercentage ? parseFloat(spoilagePercentage) : undefined,
+            moistureMismatch: moistureMismatch ? parseFloat(moistureMismatch) : undefined,
+            packagingCondition,
+            finalPrice: finalPrice ? parseFloat(finalPrice) : retailerOrder.totalPrice,
+            finalProductImageCID: finalImageCID
+          },
+          acceptedAt: new Date().toISOString()
+        },
+        actorId: retailerId,
+        actorRole: "Retailer"
+      });
+
+      if (acceptEvent.success) {
+        cropBatch.latestBlockHash = acceptEvent.blockHash;
+        await cropBatch.save();
+        console.log("✅ RETAILER_ACCEPTED_DELIVERY block created");
+
+        // Generate certificate after retailer acceptance
+        const certResult = await CertificateService.generateCertificate(cropBatch._id);
+        if (certResult.success) {
+          // Create CERTIFICATE_GENERATED event block
+          const certEvent = await EventLedgerService.createEventBlock({
+            productId: cropBatch.cropId,
+            cropBatchId: cropBatch._id,
+            eventType: "CERTIFICATE_GENERATED",
+            eventData: {
+              certificateCID: certResult.certificateCID,
+              certificateUrl: certResult.certificateUrl,
+              generatedAt: new Date().toISOString()
+            },
+            actorId: retailerId,
+            actorRole: "Retailer"
+          });
+
+          if (certEvent.success) {
+            cropBatch.latestBlockHash = certEvent.blockHash;
+            await cropBatch.save();
+            console.log("✅ CERTIFICATE_GENERATED block created");
+
+            // Generate QR code
+            const qrCodeData = {
+              cropBatchId: cropBatch._id,
+              certificateCID: certResult.certificateCID,
+              publicViewUrl: `${process.env.FRONTEND_URL || 'http://localhost:5000'}/api/public/crop/${cropBatch.cropId}`
+            };
+
+            const qrCodeBuffer = await QRCode.toBuffer(JSON.stringify(qrCodeData));
+            const qrIPFSResult = await IPFSService.uploadBuffer(qrCodeBuffer, `qr-${cropBatch.cropId}.png`);
+
+            if (qrIPFSResult.success) {
+              const qrCodeRecord = new QRCodeModel({
+                cropBatchId: cropBatch._id,
+                qrCodeUrl: qrIPFSResult.gatewayUrl,
+                qrCodeImageCID: qrIPFSResult.cid,
+                publicViewUrl: qrCodeData.publicViewUrl
+              });
+              await qrCodeRecord.save();
+
+              // Create QR_GENERATED event block
+              const qrEvent = await EventLedgerService.createEventBlock({
+                productId: cropBatch.cropId,
+                cropBatchId: cropBatch._id,
+                eventType: "QR_GENERATED",
+                eventData: {
+                  qrCodeCID: qrIPFSResult.cid,
+                  qrCodeUrl: qrIPFSResult.gatewayUrl,
+                  certificateCID: certResult.certificateCID,
+                  generatedAt: new Date().toISOString()
+                },
+                actorId: retailerId,
+                actorRole: "Retailer"
+              });
+
+              if (qrEvent.success) {
+                cropBatch.latestBlockHash = qrEvent.blockHash;
+                await cropBatch.save();
+                console.log("✅ QR_GENERATED block created");
+              }
+            }
+          }
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "Delivery accepted successfully",
+      order: {
+        _id: retailerOrder._id,
+        deliveryStatus: retailerOrder.deliveryStatus,
+        status: retailerOrder.status
+      },
+      certificate: cropBatch?.cropCertificateCID ? {
+        cid: cropBatch.cropCertificateCID,
+        url: IPFSService.getIPFSUrl(cropBatch.cropCertificateCID)?.gatewayUrl
+      } : null
+    });
+  } catch (error) {
+    console.error("❌ Accept delivery error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error accepting delivery",
+      error: error.message
+    });
+  }
+});
+
 // ✅ Get all products by farmerId
 app.get("/farmer/getProducts/:farmerId", async (req, res) => {
   try {
@@ -2749,7 +3700,7 @@ app.get("/products", async (req, res) => {
     }
 
     const products = await Product.find(filter)
-      .populate("farmerId", "name location")
+      .populate("farmerId", "fullName farmName email mobileNumber location")
       .sort(sortQuery);
 
     res.json({
@@ -2761,6 +3712,48 @@ app.get("/products", async (req, res) => {
   } catch (error) {
     console.error("❌ Product Filter Error:", error);
     res.json({ status: "error", message: "Error fetching filtered products" });
+  }
+});
+
+// ✅ Get all CropBatches (preferred source for marketplace)
+app.get("/cropbatches", async (req, res) => {
+  try {
+    const { category, minPrice, maxPrice, location, preferences, sortBy } = req.query;
+
+    let filter = { status: { $in: ['created', 'assignedToDistributor', 'withDistributor', 'processed'] } };
+
+    if (category) filter.category = category;
+
+    if (minPrice || maxPrice) {
+      filter.pricePerUnitFarmer = {};
+      if (minPrice) filter.pricePerUnitFarmer.$gte = parseFloat(minPrice);
+      if (maxPrice) filter.pricePerUnitFarmer.$lte = parseFloat(maxPrice);
+    }
+
+    // TODO: support location & preferences if stored on CropBatch
+
+    let sortQuery = {};
+    if (sortBy) {
+      switch (sortBy) {
+        case 'price_asc':
+          sortQuery.pricePerUnitFarmer = 1; break;
+        case 'price_desc':
+          sortQuery.pricePerUnitFarmer = -1; break;
+        case 'newest':
+          sortQuery.createdAt = -1; break;
+        default: break;
+      }
+    }
+
+    const cropBatches = await CropBatch.find(filter)
+      .populate('farmerId', 'fullName farmName location')
+      .sort(sortQuery)
+      .limit(200);
+
+    res.json({ status: 'success', count: cropBatches.length, cropBatches });
+  } catch (error) {
+    console.error('❌ CropBatches fetch error:', error);
+    res.status(500).json({ status: 'error', message: 'Error fetching crop batches' });
   }
 });
 
@@ -3562,6 +4555,62 @@ app.post("/api/distributor/listings", uploadDistributorListing, async (req, res)
     });
     await cropBatch.save();
 
+    // Create PRODUCT_UPGRADED_BY_DISTRIBUTOR event block
+    const upgradedEvent = await EventLedgerService.createEventBlock({
+      productId: cropBatch.cropId,
+      cropBatchId: cropBatch._id,
+      eventType: "PRODUCT_UPGRADED_BY_DISTRIBUTOR",
+      eventData: {
+        distributorId: distributorId.toString(),
+        upgradeDetails: {
+          processingStatus,
+          grade,
+          impurityPercentage: impurityPercentage ? parseFloat(impurityPercentage) : undefined,
+          initialWeight: parseFloat(initialWeight) || cropBatch.quantity,
+          finalUsableWeight: parseFloat(finalUsableWeight) || cropBatch.quantity,
+          coldStorageUsed: coldStorageUsed === "true" || coldStorageUsed === true,
+          coldStorageTemperature: coldStorageTemperature ? parseFloat(coldStorageTemperature) : undefined,
+          coldStorageDuration: coldStorageDuration ? parseFloat(coldStorageDuration) : undefined,
+          isCleaned: isCleaned === "true" || isCleaned === true,
+          packSize,
+          packMaterial,
+          finalImageCID
+        },
+        upgradedAt: new Date().toISOString()
+      },
+      actorId: distributorId,
+      actorRole: "Distributor"
+    });
+
+    if (upgradedEvent.success) {
+      cropBatch.latestBlockHash = upgradedEvent.blockHash;
+      await cropBatch.save();
+      console.log("✅ PRODUCT_UPGRADED_BY_DISTRIBUTOR block created");
+    }
+
+    // Create PRODUCT_LISTED_IN_DISTRIBUTOR_MARKETPLACE event block
+    const listedEvent = await EventLedgerService.createEventBlock({
+      productId: cropBatch.cropId,
+      cropBatchId: cropBatch._id,
+      eventType: "PRODUCT_LISTED_IN_DISTRIBUTOR_MARKETPLACE",
+      eventData: {
+        distributorId: distributorId.toString(),
+        listingId: listing._id.toString(),
+        badgeId: listing.badgeId,
+        pricePerUnitDistributor: parseFloat(pricePerUnitDistributor),
+        distributorMargin: parseFloat(distributorMargin),
+        listedAt: new Date().toISOString()
+      },
+      actorId: distributorId,
+      actorRole: "Distributor"
+    });
+
+    if (listedEvent.success) {
+      cropBatch.latestBlockHash = listedEvent.blockHash;
+      await cropBatch.save();
+      console.log("✅ PRODUCT_LISTED_IN_DISTRIBUTOR_MARKETPLACE block created");
+    }
+
     // Optional: Record on blockchain
     if (cropBatch.farmerMetamaskAddress && cropBatch.blockchainCropHash) {
       console.log("📝 Blockchain listing should happen here");
@@ -3580,7 +4629,11 @@ app.post("/api/distributor/listings", uploadDistributorListing, async (req, res)
       certificate: certResult.success ? {
         cid: certResult.certificateCID,
         url: certResult.certificateUrl
-      } : null
+      } : null,
+      blocksCreated: {
+        upgraded: upgradedEvent.success,
+        listed: listedEvent.success
+      }
     });
   } catch (error) {
     console.error("❌ Create listing error:", error);
@@ -3730,6 +4783,79 @@ app.post("/distributor/addMarketplaceProduct", uploadDistributorListing, async (
       marketPrice,
       image: req.file.filename
     });
+
+    // If this listing is for a legacy Product, ensure we create a CropBatch and PRODUCT_CREATED event
+    try {
+      const legacyProductId = req.body.productId;
+      const legacyFarmerId = req.body.farmerId;
+      if (legacyProductId) {
+        const legacyProduct = await Product.findById(legacyProductId);
+        if (legacyProduct) {
+          // If product already linked to a cropBatch, reuse it
+          if (!legacyProduct.cropBatchId) {
+            try {
+              const cropId = CertificateService.generateCropId(legacyProduct.farmerId || legacyFarmerId);
+
+              const cropBatch = new CropBatch({
+                cropId,
+                farmerId: legacyProduct.farmerId || legacyFarmerId,
+                farmerMetamaskAddress: legacyProduct.farmerMetamaskAddress || undefined,
+                productName: legacyProduct.name,
+                category: legacyProduct.category,
+                images: legacyProduct.imageCID ? [legacyProduct.imageCID] : (legacyProduct.image ? [legacyProduct.image] : []),
+                imageCID: legacyProduct.imageCID || null,
+                quantity: legacyProduct.quantity || 0,
+                unit: 'kg',
+                pricePerUnitFarmer: legacyProduct.price || 0,
+                harvestDate: legacyProduct.harvestDate || null,
+                status: 'created'
+              });
+
+              cropBatch.history.push({
+                type: 'batchCreated',
+                actorId: legacyProduct.farmerId || legacyFarmerId,
+                actorRole: 'Farmer',
+                timestamp: new Date(),
+                metadata: { productName: legacyProduct.name, quantity: legacyProduct.quantity }
+              });
+
+              await cropBatch.save();
+
+              // Create PRODUCT_CREATED event block
+              const productCreatedEvent = await EventLedgerService.createEventBlock({
+                productId: cropId,
+                cropBatchId: cropBatch._id,
+                eventType: 'PRODUCT_CREATED',
+                eventData: {
+                  productName: legacyProduct.name,
+                  category: legacyProduct.category,
+                  quantity: legacyProduct.quantity,
+                  pricePerUnitFarmer: legacyProduct.price,
+                  harvestDate: legacyProduct.harvestDate,
+                  imageCIDs: legacyProduct.imageCID ? [legacyProduct.imageCID] : []
+                },
+                actorId: legacyProduct.farmerId || legacyFarmerId,
+                actorRole: 'Farmer'
+              });
+
+              if (productCreatedEvent.success) {
+                cropBatch.latestBlockHash = productCreatedEvent.blockHash;
+                await cropBatch.save();
+                legacyProduct.cropBatchId = cropBatch._id;
+                await legacyProduct.save();
+                console.log('✅ PRODUCT_CREATED block created for marketplace listing:', productCreatedEvent.blockHash);
+              } else {
+                console.warn('⚠️ PRODUCT_CREATED block failed for marketplace listing:', productCreatedEvent.error);
+              }
+            } catch (e) {
+              console.error('❌ Error creating CropBatch for marketplace listing:', e.message);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Could not link legacy product for event ledger:', e.message);
+    }
 
     await newProduct.save();
 
@@ -3939,10 +5065,13 @@ app.post("/api/admin/verify/farmer/:farmerId", checkAdmin, async (req, res) => {
             farmer.blockchainRegistered = true;
             farmer.blockchainTxHash = blockchainResult.txHash;
             await farmer.save();
+            console.log("✅ Farmer registered on blockchain");
+          } else if (blockchainResult.skipped) {
+            console.log("ℹ️ Blockchain registration skipped (contract not deployed). System continues normally.");
           }
         } catch (blockchainError) {
-          console.warn("⚠️ Blockchain registration failed:", blockchainError.message);
-          // Continue even if blockchain registration fails
+          console.warn("⚠️ Blockchain registration failed (non-critical):", blockchainError.message);
+          // Continue even if blockchain registration fails - system works without blockchain
         }
       }
 
@@ -4042,9 +5171,13 @@ app.post("/api/admin/verify/distributor/:distributorId", checkAdmin, async (req,
             distributor.blockchainRegistered = true;
             distributor.blockchainTxHash = blockchainResult.txHash;
             await distributor.save();
+            console.log("✅ Distributor registered on blockchain");
+          } else if (blockchainResult.skipped) {
+            console.log("ℹ️ Blockchain registration skipped (contract not deployed). System continues normally.");
           }
         } catch (blockchainError) {
-          console.warn("⚠️ Blockchain registration failed:", blockchainError.message);
+          console.warn("⚠️ Blockchain registration failed (non-critical):", blockchainError.message);
+          // Continue - system works without blockchain
         }
       }
 
@@ -4143,9 +5276,13 @@ app.post("/api/admin/verify/retailer/:retailerId", checkAdmin, async (req, res) 
             retailer.blockchainRegistered = true;
             retailer.blockchainTxHash = blockchainResult.txHash;
             await retailer.save();
+            console.log("✅ Retailer registered on blockchain");
+          } else if (blockchainResult.skipped) {
+            console.log("ℹ️ Blockchain registration skipped (contract not deployed). System continues normally.");
           }
         } catch (blockchainError) {
-          console.warn("⚠️ Blockchain registration failed:", blockchainError.message);
+          console.warn("⚠️ Blockchain registration failed (non-critical):", blockchainError.message);
+          // Continue - system works without blockchain
         }
       }
 

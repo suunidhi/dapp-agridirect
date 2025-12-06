@@ -176,6 +176,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     const productId = localStorage.getItem("selectedProductId");
     const farmerId = localStorage.getItem("selectedProductOwnerFarmerId");
+    const cropBatchId = localStorage.getItem("selectedProductCropBatchId");
 
 
     if (!farmerId) {
@@ -197,9 +198,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         // Save the pending product request for distributor
 const requestPayload = {
-    farmerId,
-    distributorId: selected._id || selected.id,
-    productId
+  farmerId,
+  distributorId: selected._id || selected.id,
+  cropBatchId: cropBatchId || productId
 };
 
 fetch("http://localhost:5000/distributor/newRequest", {

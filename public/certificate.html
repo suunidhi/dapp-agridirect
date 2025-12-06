@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Product Certificate - AgriDirect</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #e0f7fa;
+      display: flex;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .certificate {
+      background: white;
+      padding: 40px;
+      border-radius: 15px;
+      max-width: 900px;
+      width: 100%;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+      border-bottom: 3px solid #2d6a4f;
+      padding-bottom: 20px;
+    }
+    .header h1 {
+      color: #00796b;
+      font-size: 32px;
+      margin-bottom: 10px;
+    }
+    .section {
+      margin-bottom: 25px;
+    }
+    .section h3 {
+      color: #004d40;
+      margin-bottom: 15px;
+      border-bottom: 2px solid #b2dfdb;
+      padding-bottom: 8px;
+      font-size: 20px;
+    }
+    .section p {
+      font-size: 16px;
+      line-height: 1.6;
+      margin: 8px 0;
+    }
+    .section strong {
+      color: #2d6a4f;
+    }
+    .verified {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      margin-top: 30px;
+      padding-top: 20px;
+      border-top: 2px solid #b2dfdb;
+    }
+    .verified img {
+      height: 60px;
+      margin-left: 15px;
+    }
+    .product-img {
+      text-align: center;
+      margin: 20px 0;
+    }
+    .product-img img {
+      max-width: 300px;
+      border-radius: 10px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }
+    .timeline {
+      background: #f5f5f5;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 10px;
+    }
+    .timeline-item {
+      padding: 8px 0;
+      border-left: 3px solid #2d6a4f;
+      padding-left: 15px;
+      margin-bottom: 10px;
+    }
+    .timeline-item strong {
+      color: #2d6a4f;
+    }
+    .price-trace {
+      background: #e8f5e9;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 10px;
+    }
+    .price-trace p {
+      margin: 5px 0;
+    }
+    .qr-section {
+      text-align: center;
+      margin-top: 30px;
+      padding: 20px;
+      background: #f5f5f5;
+      border-radius: 8px;
+    }
+    .qr-section img {
+      max-width: 200px;
+      margin: 15px auto;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="certificate" id="certificateContent">
+    <div class="header">
+      <h1>🌾 Product Authenticity Certificate</h1>
+      <p style="color: #666; font-size: 14px;">AgriDirect - Immutable Supply Chain Verification</p>
+    </div>
+
+    <div class="section">
+      <h3>👨‍🌾 Farmer Information</h3>
+      <p><strong>Name:</strong> <span id="farmerName">-</span></p>
+      <p><strong>Farm Name:</strong> <span id="farmName">-</span></p>
+      <p><strong>Location:</strong> <span id="farmerLocation">-</span></p>
+      <p><strong>Price Paid:</strong> ₹<span id="farmerPrice">-</span></p>
+      <p><strong>Timestamp:</strong> <span id="farmerTimestamp">-</span></p>
+    </div>
+
+    <div class="section">
+      <h3>🏭 Distributor Information</h3>
+      <p><strong>Name:</strong> <span id="distributorName">-</span></p>
+      <p><strong>Shop/Company Name:</strong> <span id="distributorCompany">-</span></p>
+      <p><strong>Final Price:</strong> ₹<span id="distributorPrice">-</span></p>
+      <p><strong>Timestamp:</strong> <span id="distributorTimestamp">-</span></p>
+    </div>
+
+    <div class="section">
+      <h3>🏪 Retailer Information</h3>
+      <p><strong>Name:</strong> <span id="retailerName">-</span></p>
+      <p><strong>Shop Name:</strong> <span id="retailerShop">-</span></p>
+      <p><strong>Final Price:</strong> ₹<span id="retailerPrice">-</span></p>
+      <p><strong>Timestamp:</strong> <span id="retailerTimestamp">-</span></p>
+    </div>
+
+    <div class="section">
+      <h3>🚚 Logistics Information</h3>
+      <p><strong>Logistics Service:</strong> <span id="logisticsName">-</span></p>
+      <p><strong>Vehicle Number:</strong> <span id="vehicleNumber">-</span></p>
+      <p><strong>Driver Contact:</strong> <span id="driverContact">-</span></p>
+      <p><strong>Delivery Time:</strong> <span id="deliveryTime">-</span></p>
+    </div>
+
+    <div class="section">
+      <h3>📦 Product Details</h3>
+      <div class="product-img" id="productImageContainer"></div>
+      <p><strong>Product Name:</strong> <span id="productName">-</span></p>
+      <p><strong>Category:</strong> <span id="productCategory">-</span></p>
+      <p><strong>Quantity:</strong> <span id="productQuantity">-</span></p>
+      <p><strong>Harvest Date:</strong> <span id="harvestDate">-</span></p>
+    </div>
+
+    <div class="section">
+      <h3>📊 Price Trace</h3>
+      <div class="price-trace" id="priceTrace"></div>
+    </div>
+
+    <div class="section">
+      <h3>🔗 Supply Chain Timeline</h3>
+      <div class="timeline" id="timeline"></div>
+    </div>
+
+    <div class="qr-section">
+      <h3>📱 QR Code</h3>
+      <div id="qrCodeContainer"></div>
+      <p style="margin-top: 15px; color: #666;">Scan this QR code to verify product authenticity</p>
+    </div>
+
+    <div class="verified">
+      <p><strong>✅ Verified:</strong> Authentic Product</p>
+      <img src="https://i.ibb.co/9vCk9f5/verified-badge.png" alt="Verified Badge" />
+    </div>
+  </div>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const cropId = urlParams.get('cropId') || urlParams.get('id');
+
+    async function loadCertificate() {
+      if (!cropId) {
+        document.getElementById('certificateContent').innerHTML = '<h2>Error: Crop ID not provided</h2>';
+        return;
+      }
+
+      try {
+        const res = await fetch(`http://localhost:5000/api/public/crop/${cropId}`);
+        const data = await res.json();
+
+        if (!data.success) {
+          throw new Error(data.message || 'Failed to load certificate');
+        }
+
+        const crop = data.crop;
+        
+        // Farmer Info
+        if (data.farmer) {
+          document.getElementById('farmerName').textContent = data.farmer.name || '-';
+          document.getElementById('farmName').textContent = data.farmer.farmName || '-';
+          const loc = data.farmer.location;
+          if (loc) {
+            document.getElementById('farmerLocation').textContent = 
+              `${loc.addressLine1 || ''}, ${loc.city || ''}, ${loc.state || ''}`;
+          }
+        }
+        if (data.priceTrace) {
+          document.getElementById('farmerPrice').textContent = data.priceTrace.farmerSalePrice || '-';
+        }
+
+        // Distributor Info
+        if (data.distributor) {
+          document.getElementById('distributorName').textContent = data.distributor.name || '-';
+          document.getElementById('distributorCompany').textContent = data.distributor.companyName || '-';
+        }
+        if (data.priceTrace) {
+          document.getElementById('distributorPrice').textContent = data.priceTrace.distributorSalePrice || '-';
+        }
+
+        // Product Info
+        document.getElementById('productName').textContent = crop.productName || '-';
+        document.getElementById('productCategory').textContent = crop.category || '-';
+        document.getElementById('productQuantity').textContent = `${crop.quantity || '-'} ${crop.unit || ''}`;
+        if (crop.harvestDate) {
+          document.getElementById('harvestDate').textContent = new Date(crop.harvestDate).toLocaleDateString();
+        }
+
+        // Product Image
+        if (data.media && data.media.images && data.media.images.length > 0) {
+          const img = document.createElement('img');
+          img.src = data.media.images[0].gatewayUrl || data.media.images[0];
+          img.alt = crop.productName;
+          document.getElementById('productImageContainer').appendChild(img);
+        }
+
+        // Price Trace
+        if (data.priceTrace) {
+          const priceTraceDiv = document.getElementById('priceTrace');
+          priceTraceDiv.innerHTML = `
+            <p><strong>Farmer Sale Price:</strong> ₹${data.priceTrace.farmerSalePrice || '-'}</p>
+            <p><strong>Transport Cost:</strong> ₹${data.priceTrace.transportCost || '0'}</p>
+            <p><strong>Distributor Purchase Price:</strong> ₹${data.priceTrace.distributorPurchasePrice || '-'}</p>
+            <p><strong>Distributor Sale Price:</strong> ₹${data.priceTrace.distributorSalePrice || '-'}</p>
+            <p><strong>Retailer Purchase Price:</strong> ₹${data.priceTrace.retailerPurchasePrice || '-'}</p>
+            <p><strong>Retailer Sale Price:</strong> ₹${data.priceTrace.retailerSalePrice || '-'}</p>
+            <p><strong>Final Consumer Price:</strong> ₹${data.priceTrace.finalConsumerPrice || '-'}</p>
+          `;
+        }
+
+        // Timeline
+        if (data.timeline && data.timeline.length > 0) {
+          const timelineDiv = document.getElementById('timeline');
+          data.timeline.forEach(entry => {
+            const item = document.createElement('div');
+            item.className = 'timeline-item';
+            item.innerHTML = `
+              <strong>${entry.type}</strong> by ${entry.actorRole}<br>
+              <small>${new Date(entry.timestamp).toLocaleString()}</small>
+            `;
+            timelineDiv.appendChild(item);
+          });
+        }
+
+        // QR Code
+        if (data.qrCode && data.qrCode.imagePath) {
+          const qrImg = document.createElement('img');
+          qrImg.src = `http://localhost:5000${data.qrCode.imagePath}`;
+          qrImg.alt = 'QR Code';
+          document.getElementById('qrCodeContainer').appendChild(qrImg);
+        }
+
+      } catch (error) {
+        console.error('Error loading certificate:', error);
+        document.getElementById('certificateContent').innerHTML = 
+          `<h2>Error loading certificate</h2><p>${error.message}</p>`;
+      }
+    }
+
+    loadCertificate();
+  </script>
+</body>
+</html>
+

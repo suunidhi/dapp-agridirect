@@ -306,79 +306,110 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-
 <script>
 async function loadProducts() {
   try {
-    const res = await fetch("http://localhost:5000/products");
-    const data = await res.json();
+    const productGrid = document.getElementById("productGrid");
+    productGrid.innerHTML = "";
 
-    if (data.status === "success") {
-      const productGrid = document.getElementById("productGrid");
-      productGrid.innerHTML = "";
+    // Try Products first (where real farmer data is)
+    let res = await fetch("http://localhost:5000/products");
+    let data = await res.json();
 
-      data.products.forEach(p => {
-        const wrapper = document.createElement("div");
-        wrapper.className = "card-container";
+    let items = [];
+    let isCropBatch = false;
 
-        const productData = encodeURIComponent(JSON.stringify(p));
+    if (data && data.status === 'success' && Array.isArray(data.products) && data.products.length > 0) {
+      items = data.products;
+      isCropBatch = false;
+    } else {
+      // Fallback to CropBatches
+      res = await fetch("http://localhost:5000/cropbatches");
+      data = await res.json();
+      if (data && data.status === 'success' && Array.isArray(data.cropBatches)) {
+        items = data.cropBatches;
+        isCropBatch = true;
+      }
+    }
 
-        wrapper.innerHTML = `
-          <div class="product-card">
-            <div class="card-side card-front">
-              <img src="http://localhost:5000${p.image}" alt="${p.name}">
-              <div class="product-info">
-                <h5>${p.name}</h5>
-                <p><strong>Category:</strong> ${p.category}</p>
-                <p><strong>Farmer:</strong> ${p.farmerId?.name || "Unknown"}</p>
-                <p><strong>Location:</strong> ${p.location}</p>
-                <p><strong>Quantity:</strong> ${p.quantity} kg</p>
-                <p class="price"><strong>Price:</strong> ₹${p.price}</p>
-                <div class="btn-group">
-                  <button class="btn-buy"
-                    onclick="event.stopPropagation(); handleBuyButton('${p._id}', '${p.name}', '${p.farmerId?._id}', ${p.price})"
-                    id="buyBtn-${p._id}">
-                    🛒 Buy Now
-                  </button>
-                  <button class="btn-sqr" onclick="event.stopPropagation(); showQR(this, '${productData}')">Verify Farmer</button>
-                </div>
+    if (!items || items.length === 0) {
+      productGrid.innerHTML = `<div class="no-products" style="text-align:center; padding:40px;">No products found.</div>`;
+      return;
+    }
+
+    items.forEach(p => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "card-container";
+
+      const productData = encodeURIComponent(JSON.stringify(p));
+
+      // farmer info
+      const farmerLocation = p.farmerId?.location ? `${p.farmerId.location.city || ''}, ${p.farmerId.location.state || ''}`.replace(/^,\s*|,\s*$/g, '').trim() || p.farmerId.location.addressLine1 || 'Location not available' : p.location || 'Location not available';
+      const farmerName = p.farmerId?.fullName || p.farmerId?.farmName || 'Unknown Farmer';
+
+      // image handling: CropBatch.images is array of CIDs (use /ipfs/<cid> proxy), legacy product may have image URL
+      let imageUrl = 'image/placeholder.png';
+      if (isCropBatch) {
+        const cid = Array.isArray(p.images) && p.images.length ? p.images[0] : p.imageCID || null;
+        if (cid) imageUrl = `http://localhost:5000/ipfs/${cid}`;
+      } else {
+        imageUrl = p.image || imageUrl;
+        if (imageUrl.startsWith('/ipfs/')) imageUrl = `http://localhost:5000${imageUrl}`;
+        else if (!imageUrl.startsWith('http')) imageUrl = `http://localhost:5000${imageUrl}`;
+      }
+
+      const name = isCropBatch ? (p.productName || 'Unnamed') : (p.name || 'Unnamed');
+      const category = isCropBatch ? p.category : p.category;
+      const quantity = isCropBatch ? p.quantity : p.quantity;
+      const price = isCropBatch ? p.pricePerUnitFarmer : p.price;
+      const id = p._id;
+      const cropBatchId = isCropBatch ? p._id : (p.cropBatchId || '');
+
+      wrapper.innerHTML = `
+        <div class="product-card">
+          <div class="card-side card-front">
+            <img src="${imageUrl}" alt="${name}" onerror="this.src='image/placeholder.png'">
+            <div class="product-info">
+              <h5>${name}</h5>
+              <p><strong>Category:</strong> ${category}</p>
+              <p><strong>Farmer:</strong> ${farmerName}</p>
+              <p><strong>Location:</strong> ${farmerLocation}</p>
+              <p><strong>Quantity:</strong> ${quantity} kg</p>
+              <p class="price"><strong>Price:</strong> ₹${price}</p>
+              <div class="btn-group">
+                <button class="btn-buy" onclick="event.stopPropagation(); handleBuyButton('${id}', '${name}', '${p.farmerId?._id}', ${price}, '${cropBatchId}')" id="buyBtn-${id}">🛒 Buy Now</button>
+                <button class="btn-sqr" onclick="event.stopPropagation(); showQR(this, '${productData}')">Verify Farmer</button>
               </div>
             </div>
-            <div class="card-side card-back">
-              <h5>Scan QR to verify</h5>
-              <div class="qr"></div>
-              <button class="btn btn-outline-success mt-3" onclick="event.stopPropagation(); unflipCard(this)">Back</button>
-            </div>
           </div>
-        `;
-        productGrid.appendChild(wrapper);
-
-        wrapper.querySelector(".product-card").addEventListener("click", function(e) {
-          if (!e.target.closest("button")) this.classList.toggle("is-flipped");
-        });
-      });
-
-      // ✅ Add "+ Add Product" card for farmers
-      const userRole = localStorage.getItem("userRole");
-      if (userRole === "farmer") {
-        const addWrapper = document.createElement("div");
-        addWrapper.className = "card-container";
-        addWrapper.innerHTML = `
-          <div class="product-card text-center d-flex flex-column justify-content-center align-items-center border border-success"
-              style="cursor:pointer; height:500px; background:#f1fdf1; border-radius:12px;">
-            <div>
-              <h1 style="font-size:80px; color:#2d6a4f;">+</h1>
-              <h4 style="color:#2d6a4f;">Add New Product</h4>
-            </div>
+          <div class="card-side card-back">
+            <h5>Scan QR to verify</h5>
+            <div class="qr"></div>
+            <button class="btn btn-outline-success mt-3" onclick="event.stopPropagation(); unflipCard(this)">Back</button>
           </div>
-        `;
-        addWrapper.addEventListener("click", () => {
-          window.location.href = "farmeraddproduct.html";
-        });
-        productGrid.appendChild(addWrapper);
-      }
-    } else alert("Error loading products");
+        </div>
+      `;
+
+      productGrid.appendChild(wrapper);
+      wrapper.querySelector(".product-card").addEventListener("click", function(e) { if (!e.target.closest("button")) this.classList.toggle("is-flipped"); });
+    });
+
+    // Add "+ Add Product" card for farmers
+    const userRole = localStorage.getItem("userRole");
+    if (userRole === "farmer") {
+      const addWrapper = document.createElement("div");
+      addWrapper.className = "card-container";
+      addWrapper.innerHTML = `
+        <div class="product-card text-center d-flex flex-column justify-content-center align-items-center border border-success" style="cursor:pointer; height:500px; background:#f1fdf1; border-radius:12px;">
+          <div>
+            <h1 style="font-size:80px; color:#2d6a4f;">+</h1>
+            <h4 style="color:#2d6a4f;">Add New Product</h4>
+          </div>
+        </div>
+      `;
+      addWrapper.addEventListener("click", () => { window.location.href = "farmeraddproduct.html"; });
+      productGrid.appendChild(addWrapper);
+    }
   } catch (err) {
     console.error(err);
     alert("Failed to fetch products from server");
@@ -487,7 +518,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ----------------------- HANDLE BUY BUTTON FOR FARMER -----------------------
-function handleBuyButton(productId, productName, farmerId, price) {
+function handleBuyButton(productId, productName, farmerId, price, cropBatchId) {
   const userRole = localStorage.getItem("userRole");
 
   if (!userRole) {
@@ -498,17 +529,19 @@ function handleBuyButton(productId, productName, farmerId, price) {
 
   // FARMER: choose distributor
   if (userRole === "farmer") {
-    chooseDistributor(productId, productName, farmerId);
+    chooseDistributor(productId, productName, farmerId, cropBatchId);
     return;
   }
 
   // DISTRIBUTOR: redirect to checkout with URL params
   if (userRole === "distributor") {
 
+    // include cropBatchId when available so checkout flow can use the CropBatch
+    const cbParam = cropBatchId ? `&cropBatchId=${encodeURIComponent(cropBatchId)}` : '';
     window.location.href =
       `checkout.html?productId=${productId}&name=${encodeURIComponent(
         productName
-      )}&price=${price}&farmerId=${farmerId}`;
+      )}&price=${price}&farmerId=${farmerId}${cbParam}`;
 
     return;
   }
@@ -540,7 +573,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-function chooseDistributor(productId, productName, farmerId) {
+function chooseDistributor(productId, productName, farmerId, cropBatchId) {
   if(farmerId !== localStorage.getItem("farmerId")) {
     alert("You can only choose distributors for your own products.");
     return;
@@ -548,6 +581,7 @@ function chooseDistributor(productId, productName, farmerId) {
   localStorage.setItem("selectedProductId", productId);
   localStorage.setItem("selectedProductName", productName);
   localStorage.setItem("selectedProductOwnerFarmerId", farmerId);
+  if (cropBatchId) localStorage.setItem("selectedProductCropBatchId", cropBatchId);
   window.location.href = "choose_distributor.html";
 }
 

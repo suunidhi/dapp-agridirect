@@ -488,6 +488,12 @@ document.getElementById("marketForm").addEventListener("submit", async (e) => {
   const formElement = document.getElementById("marketForm");
   const formData = new FormData(formElement);
 
+  // Include productId & farmerId so server can link legacy Product -> CropBatch and emit PRODUCT_CREATED
+  const productIdStored = localStorage.getItem("productId");
+  const farmerIdStored = localStorage.getItem("farmerId");
+  if (productIdStored) formData.append('productId', productIdStored);
+  if (farmerIdStored) formData.append('farmerId', farmerIdStored);
+
   const distributorId = localStorage.getItem("distributorId");
 
   const res = await fetch("http://localhost:5000/distributor/addMarketplaceProduct", {

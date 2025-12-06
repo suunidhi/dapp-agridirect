@@ -211,40 +211,52 @@ document.querySelector(".container-box").prepend(pendingContainer);
 
 async function loadPendingRequests() {
   try {
+    console.log("[DEBUG] Fetching pending requests for distributorId:", distributorId);
     const res = await fetch(`http://localhost:5000/distributor/getRequests/${encodeURIComponent(distributorId)}`);
     const data = await res.json();
+    
+    console.log("[DEBUG] Response from GET /distributor/getRequests:", data);
 
-    if (!data.success || data.requests.length === 0) {
+    if (!data.success || !data.requests || data.requests.length === 0) {
+      console.log("[DEBUG] No pending requests returned from backend");
       pendingContainer.innerHTML += `<p>No pending requests.</p>`;
       return;
     }
 
+    console.log("[DEBUG] Found", data.requests.length, "pending requests");
+    
     data.requests.forEach(req => {
       const card = document.createElement("div");
       card.className = "product-card";
       card.style.marginBottom = "20px";
 
       card.innerHTML = `
-        <p><strong>Product:</strong> ${req.productId?.name || 'N/A'}</p>
-        <p><strong>Farmer:</strong> ${req.farmerId?.name || 'N/A'}</p>
-        <p><strong>Quantity:</strong> ${req.productId?.quantity || 'N/A'} kg</p>
-        <p><strong>Price:</strong> ₹${req.productId?.price || 'N/A'}</p>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <img src="${req.productId?.image || 'http://localhost:5000/uploads/placeholder.png'}" alt="product" style="width:90px;height:72px;object-fit:cover;border-radius:8px;">
+          <div style="flex:1;">
+            <p style="margin:0 0 6px;"><strong>Product:</strong> ${req.productId?.name || 'N/A'}</p>
+            <p style="margin:0 0 6px;"><strong>Farmer:</strong> ${req.farmerId?.name || 'N/A'}</p>
+            <p style="margin:0 0 6px;"><strong>Quantity:</strong> ${req.productId?.quantity || 'N/A'} kg</p>
+            <p style="margin:0 0 6px;"><strong>Price:</strong> ₹${req.productId?.price || 'N/A'}</p>
+          </div>
+        </div>
 
-     <div><button class="btn btn-success" style="border-radius:6px;width:100px;font-weight:600;padding:5px 14px;"onclick="acceptRequest(
-    '${req._id}',
-    '${req.productId?._id}',
-    '${req.productId?.name}',
-    '${req.productId?.price}',
-    '${req.farmerId?._id}'
-)">Accept</button>
-        <button class="btn btn-danger" style="border-radius:6px;width:100px;font-weight:600;padding:5px 14px;"onclick="rejectRequest('${req._id}', '${req.farmerId?._id}')">Reject</button></div>
+        <div style="margin-top:8px;">
+          ${req.eventLedger ? `<small><strong>Latest Event:</strong> ${req.eventLedger.eventType} — <a href="${req.eventLedger.cid ? (`http://localhost:5000/ipfs/${req.eventLedger.cid}`) : '#'}" target="_blank">View</a></small>` : ''}
+        </div>
+
+        <div style="margin-top:10px;display:flex;gap:8px;">
+          <button class="btn btn-success" style="border-radius:6px;width:100px;font-weight:600;padding:5px 14px;" onclick="acceptRequest('${req._id}','${req.productId?._id}','${req.productId?.name}','${req.productId?.price}','${req.farmerId?._id}')">Accept</button>
+          <button class="btn btn-danger" style="border-radius:6px;width:100px;font-weight:600;padding:5px 14px;" onclick="rejectRequest('${req._id}', '${req.farmerId?._id}')">Reject</button>
+        </div>
       `;
 
       pendingContainer.appendChild(card);
     });
 
   } catch (err) {
-    console.error(err);
+    console.error("[ERROR] Failed to load pending requests:", err);
+    pendingContainer.innerHTML += `<p style="color:red;">Error loading pending requests.</p>`;
   }
 }
 

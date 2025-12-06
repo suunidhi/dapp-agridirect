@@ -263,7 +263,8 @@ const cropBatchSchema = new mongoose.Schema({
   }],
   
   // Media (IPFS CIDs)
-  images: [{ type: String }],
+  images: [{ type: String , required: true }],
+  imageCID: { type: String, required: true },
   videoCID: { type: String },
   
   // Quantity & Pricing
@@ -525,7 +526,13 @@ export const QRCode = mongoose.model("QRCode", qrCodeSchema);
 
 // Legacy Product model (for backward compatibility)
 const productSchema = new mongoose.Schema({
-  farmerId: { type: mongoose.Schema.Types.ObjectId, ref: "Farmer", required: true },
+  farmerId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Farmer', 
+    required: true 
+  },  
+  // Link to enhanced CropBatch (if created)
+  cropBatchId: { type: mongoose.Schema.Types.ObjectId, ref: 'CropBatch' },
   name: String,
   category: String,
   preferences: { type: [String], default: [] },
@@ -623,6 +630,37 @@ const retailerProductSchema = new mongoose.Schema({
 });
 
 export const RetailerProducts = mongoose.model("RetailerProducts", retailerProductSchema);
+// ============ NOTIFICATION SCHEMA (FIXES 500 ERROR) ============
+const notificationSchema = new mongoose.Schema({
+  distributorId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Distributor', 
+    required: true 
+  },
+  productId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Product',
+    required: true 
+  },
+  farmerId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Farmer',
+    required: true 
+  },
+  cropBatchId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'CropBatch' 
+  },
+  status: { 
+    type: String, 
+    enum: ['pending', 'accepted', 'rejected'], 
+    default: 'pending' 
+  },
+  createdAt: { type: Date, default: Date.now }
+});
+
+notificationSchema.index({ distributorId: 1, status: 1 });
+export const Notification = mongoose.model("Notification", notificationSchema);
 
 // Legacy Order model
 const orderSchema = new mongoose.Schema({

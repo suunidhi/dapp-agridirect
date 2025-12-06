@@ -189,13 +189,22 @@
       formData.forEach((value, key) => dataObj[key] = value);
 
       try {
+        console.log("📤 Sending login request:", dataObj);
+        
         const res = await fetch("http://localhost:5000/farmer/login", {
           method: "POST",
           headers: {"Content-Type":"application/json"},
           body: JSON.stringify(dataObj)
         });
 
+        console.log("📥 Response status:", res.status);
+        
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+
         const data = await res.json();
+        console.log("📥 Response data:", data);
 
         // Show message
         messageText.innerText = data.message || "Login status unknown!";
@@ -218,14 +227,17 @@
             window.location.href = `marketplacefarmer.html?farmerId=${data.farmerId}`;
           }, 1500);
         } else {
+          // Show error message with details
+          messageText.innerText = data.message || data.error || "Login failed!";
+          messageDiv.className = "error";
+          messageDiv.style.display = "block";
           okBtn.style.display = "inline-block";
           okBtn.onclick = () => messageDiv.style.display = "none";
         }
 
-
-
       } catch(err){
-        messageText.innerText = "Server error!";
+        console.error("❌ Login error:", err);
+        messageText.innerText = "Server error: " + (err.message || "Unable to connect to server");
         messageDiv.className = "error";
         messageDiv.style.display = "block";
         okBtn.style.display = "inline-block";
