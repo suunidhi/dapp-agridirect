@@ -277,16 +277,58 @@ async function loadPendingRequests() {
         }
       }
 
-      // Normalize product data coming from different backend shapes
-      const rawProduct = req.productId || req.product || req.cropBatchId || {};
-      const prod = {
-        _id: rawProduct._id || rawProduct.cropId || rawProduct.id || null,
-        name: rawProduct.name || rawProduct.productName || rawProduct.productName || null,
-        quantity: rawProduct.quantity || rawProduct.qty || null,
-        price: rawProduct.price || rawProduct.pricePerUnitFarmer || rawProduct.pricePerUnit || null,
-        images: Array.isArray(rawProduct.images) ? rawProduct.images : (rawProduct.images ? [rawProduct.images] : (rawProduct.image ? [rawProduct.image] : [])),
-        imageCID: rawProduct.imageCID || rawProduct.imageCid || null
-      };
+// ------------ FIXED PRODUCT NORMALIZATION ---------------
+let rawProduct = null;
+
+// CASE 1: backend sends productId object
+if (req.productId && typeof req.productId === "object") {
+  rawProduct = req.productId;
+
+// CASE 2: backend sends cropBatch object
+} else if (req.cropBatch) {
+  rawProduct = req.cropBatch;
+
+// CASE 3: backend sends product
+} else if (req.product) {
+  rawProduct = req.product;
+
+// CASE 4: fallback
+} else {
+  rawProduct = {};
+}
+
+// Normalize all possible keys
+const prod = {
+  _id: rawProduct._id || rawProduct.cropId || rawProduct.id || null,
+
+  name:
+    rawProduct.productName ||
+    rawProduct.name ||
+    rawProduct.cropName ||
+    null,
+
+  quantity:
+    rawProduct.quantity ||
+    rawProduct.qty ||
+    rawProduct.amount ||
+    null,
+
+  price:
+    rawProduct.price ||
+    rawProduct.pricePerUnit ||
+    rawProduct.pricePerUnitFarmer ||
+    rawProduct.cost ||
+    null,
+
+  images: Array.isArray(rawProduct.images)
+    ? rawProduct.images
+    : rawProduct.image
+    ? [rawProduct.image]
+    : [],
+
+  imageCID: rawProduct.imageCID || rawProduct.cid || null
+};
+
 
       // Build a safe image URL from available fields
       let imageSrc = 'http://localhost:5000/uploads/placeholder.png';
@@ -301,28 +343,45 @@ async function loadPendingRequests() {
           else imageSrc = `${origin}/uploads/${first}`;
         }
       }
+card.innerHTML = `
+    <img src="${imageSrc}" 
+         style="width:120px;height:120px;border-radius:10px;object-fit:cover;margin-bottom:10px;" />
 
-      card.innerHTML = `
-        <div style="display:flex;align-items:center;gap:12px;">
-          <img src="${imageSrc}" alt="product" style="width:90px;height:72px;object-fit:cover;border-radius:8px;">
-          <div style="flex:1;">
-            <p style="margin:0 0 6px;"><strong>Product:</strong> ${prod.name || 'N/A'}</p>
-            <p style="margin:0 0 6px;"><strong>Farmer:</strong> ${farmerName}</p>
-            <p style="margin:0 0 6px;"><strong>Quantity:</strong> ${prod.quantity != null ? prod.quantity : 'N/A'} kg</p>
-            <p style="margin:0 0 6px;"><strong>Price:</strong> ₹${prod.price != null ? prod.price : 'N/A'}</p>
-            <p style="margin:0 0 6px;"><strong>Location:</strong> ${locationStr}</p>
-          </div>
-        </div>
+    <div style="display:flex;flex-direction:column;gap:6px;">
 
-        <div style="margin-top:8px;">
-          ${req.eventLedger ? `<small><strong>Latest Event:</strong> ${req.eventLedger.eventType} — <a href="${req.eventLedger.cid ? (`http://localhost:5000/ipfs/${req.eventLedger.cid}`) : '#'}" target="_blank">View</a></small>` : ''}
-        </div>
+      <p><strong>Product:</strong> ${prod.name || 'N/A'}</p>
+      <p><strong>Farmer:</strong> ${farmerName}</p>
+      <p><strong>Quantity:</strong> ${prod.quantity != null ? prod.quantity : 'N/A'} kg</p>
+      <p><strong>Price:</strong> ₹${prod.price != null ? prod.price : 'N/A'}</p>
+      <p><strong>Location:</strong> ${locationStr}</p>
 
-        <div style="margin-top:10px;display:flex;gap:8px;">
-          <button class="btn btn-success" style="border-radius:6px;width:100px;font-weight:600;padding:5px 14px;" onclick="acceptRequest('${req._id}','${prod._id}','${encodeURIComponent(prod.name||'')}',${prod.price != null ? prod.price : 'null'},'${req.farmerId?._id}')">Accept</button>
-          <button class="btn btn-danger" style="border-radius:6px;width:100px;font-weight:600;padding:5px 14px;" onclick="rejectRequest('${req._id}', '${req.farmerId?._id}')">Reject</button>
-        </div>
-      `;
+    </div>
+
+    ${req.eventLedger ? 
+      `<div style="margin-top:8px;">
+         <small><strong>Latest Event:</strong> ${req.eventLedger.eventType} — 
+         <a href="http://localhost:5000/ipfs/${req.eventLedger.cid}" target="_blank">View</a>
+         </small>
+       </div>` 
+      : ''}
+
+    <div style="margin-top:10px;display:flex;gap:8px;">
+      <button class="btn btn-success"
+        onclick="acceptRequest(
+          '${req._id}',
+          '${prod._id}',
+          '${encodeURIComponent(prod.name || '')}',
+          '${prod.price ?? ''}',
+          '${req.farmerId?._id}'
+        )"
+      >Accept</button>
+
+      <button class="btn btn-danger"
+        onclick="rejectRequest('${req._id}', '${req.farmerId?._id}')"
+      >Reject</button>
+    </div>
+`;
+
 
       pendingContainer.appendChild(card);
     });
